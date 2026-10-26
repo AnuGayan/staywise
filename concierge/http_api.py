@@ -11,6 +11,7 @@ Each (guest, conversation_id) pair has its own history; turns within one convers
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from starlette.routing import Route
 
 from concierge.agent import Agent, AgentStepLimitError, ToolCallObserver
 from concierge.identity import Guest, IdentityError, bearer_token, guest_from_token
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CONVERSATIONS = 100
 DEFAULT_CONVERSATION_ID = "default"
@@ -105,6 +108,8 @@ def create_app(
     async def chat(request: Request) -> Response:
         token = bearer_token(request.headers)
         if token is None:
+            # Names only, never values: shows whether the gateway forwarded the token, and under what name.
+            logger.warning("chat request without a user token; headers present: %s", ", ".join(sorted(request.headers)))
             return _error(401, "no user token: send Authorization: Bearer <token>")
         try:
             guest = guest_from_token(token, members)

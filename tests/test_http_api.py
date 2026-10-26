@@ -164,3 +164,16 @@ def test_chat_rejects_bad_requests(kwargs: dict[str, Any], status: int, error: s
 )
 def test_chat_maps_agent_failures(exc: Exception, status: int) -> None:
     assert make_client(EchoLlm(error=exc)).post("/chat", json={"message": "hi"}, headers=auth()).status_code == status
+
+
+def test_bare_forwarded_token_is_accepted() -> None:
+    # The gateway's JWT policy can forward the token without its scheme (forwardTokenStripScheme).
+    headers = {"X-Forwarded-Authorization": token_for("alex")}
+    assert make_client().post("/chat", json={"message": "hi"}, headers=headers).json()["member_id"] == "HR-100245"
+
+
+def test_missing_token_logs_header_names_but_not_values(caplog: pytest.LogCaptureFixture) -> None:
+    response = make_client().post("/chat", json={"message": "hi"}, headers={"X-Secret-Thing": "do-not-log"})
+    assert response.status_code == 401
+    assert "x-secret-thing" in caplog.text
+    assert "do-not-log" not in caplog.text

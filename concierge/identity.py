@@ -55,12 +55,24 @@ def load_members(path: Path) -> dict[str, str]:
 
 
 def bearer_token(headers: Mapping[str, str]) -> str | None:
-    """The user token from `Authorization: Bearer ...`, or from the gateway's `X-Forwarded-Authorization`."""
+    """The user token from `Authorization`, or from `X-Forwarded-Authorization` where the gateway's JWT
+    policy forwards it after validation (it removes `Authorization`, and may strip the `Bearer` scheme).
+
+    Accepts `Bearer <jwt>` or a bare JWT in either header.
+    """
     for name in ("authorization", FORWARDED_AUTHORIZATION):
-        scheme, _, token = headers.get(name, "").partition(" ")
-        if scheme.lower() == "bearer" and token.strip():
-            return token.strip()
+        value = headers.get(name, "").strip()
+        scheme, _, rest = value.partition(" ")
+        if scheme.lower() == "bearer" and rest.strip():
+            return rest.strip()
+        if _looks_like_jwt(value):
+            return value
     return None
+
+
+def _looks_like_jwt(value: str) -> bool:
+    parts = value.split(".")
+    return len(parts) == 3 and all(parts[:2]) and " " not in value
 
 
 def unverified_claims(token: str) -> dict[str, Any]:
