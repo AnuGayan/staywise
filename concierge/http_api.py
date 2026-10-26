@@ -99,6 +99,7 @@ def create_app(
     auth: WebAuth,
     *,
     secure_cookies: bool = False,
+    base_path: str = "",
     max_sessions: int = DEFAULT_MAX_SESSIONS,
 ) -> Starlette:
     """Build the Starlette app serving one agent runtime behind ThunderID sign-in."""
@@ -113,30 +114,30 @@ def create_app(
 
     async def chat_page(request: Request) -> Response:
         if signed_in(request) is None:
-            return RedirectResponse("/login", status_code=303)
+            return RedirectResponse(f"{base_path}/login", status_code=303)
         return FileResponse(CHAT_PAGE, media_type="text/html")
 
     async def login(_: Request) -> Response:
         try:
             return RedirectResponse(await auth.begin_login(), status_code=303)
         except httpx.HTTPError as exc:
-            return _sign_in_failed(f"cannot reach ThunderID ({exc})", status=502)
+            return _sign_in_failed(f"cannot reach ThunderID ({exc})", base_path, status=502)
 
     async def callback(request: Request) -> Response:
         params = request.query_params
         if "error" in params:
             detail = params.get("error_description") or params["error"]
-            return _sign_in_failed(f"ThunderID reported: {detail}")
+            return _sign_in_failed(f"ThunderID reported: {detail}", base_path)
         state, code = params.get("state"), params.get("code")
         if not state or not code:
-            return _sign_in_failed("the sign-in response is missing its code or state")
+            return _sign_in_failed("the sign-in response is missing its code or state", base_path)
         try:
             session_id, ttl = await auth.complete_login(state, code)
         except AuthError as exc:
-            return _sign_in_failed(str(exc))
+            return _sign_in_failed(str(exc), base_path)
         except httpx.HTTPError as exc:
-            return _sign_in_failed(f"cannot reach ThunderID ({exc})", status=502)
-        response = RedirectResponse("/", status_code=303)
+            return _sign_in_failed(f"cannot reach ThunderID ({exc})", base_path, status=502)
+        response = RedirectResponse(f"{base_path}/", status_code=303)
         response.set_cookie(
             SESSION_COOKIE, session_id, max_age=ttl, httponly=True, samesite="lax", secure=secure_cookies
         )
@@ -220,9 +221,10 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status)
 
 
-def _sign_in_failed(reason: str, status: int = 400) -> HTMLResponse:
+def _sign_in_failed(reason: str, base_path: str, status: int = 400) -> HTMLResponse:
     return HTMLResponse(
         "<!doctype html><title>Sign-in failed</title>"
-        f"<p>Sign-in failed: {html.escape(reason)}</p><p><a href='/login'>Try again</a></p>",
+        f"<p>Sign-in failed: {html.escape(reason)}</p>"
+        f"<p><a href='{html.escape(base_path)}/login'>Try again</a></p>",
         status_code=status,
     )

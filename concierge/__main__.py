@@ -92,7 +92,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="serve the web chat (ThunderID sign-in required) instead of a terminal chat",
     )
     parser.add_argument("--host", default="127.0.0.1", help="HTTP API bind address (with --serve)")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="HTTP API port (with --serve)")
+    parser.add_argument(
+        "--port", type=int, default=int(os.environ.get("PORT", DEFAULT_PORT)), help="HTTP port with --serve (or PORT)"
+    )
     return parser.parse_args(argv)
 
 
@@ -178,7 +180,7 @@ async def serve(
 
         auth = WebAuth(OidcClient(oidc, http), members)
         runtime = Runtime(model=args.model, tool_names=hub.tool_names, new_agent=new_agent)
-        app = create_app(runtime, auth, secure_cookies=oidc.secure_cookies)
+        app = create_app(runtime, auth, secure_cookies=oidc.secure_cookies, base_path=oidc.base_path)
         config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info" if args.verbose else "warning")
         print(
             f"Concierge chat on {oidc.public_url} (sign-in: {oidc.issuer}, client {oidc.client_id}; "

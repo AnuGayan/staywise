@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 import jwt
@@ -53,6 +53,20 @@ class OidcSettings:
     public_url: str
     resource: str
     scopes: tuple[str, ...] = DEFAULT_SCOPES
+    # Where this process reaches the same ThunderID for back-channel calls (discovery, token, JWKS) when
+    # the browser-facing issuer URL doesn't resolve from here, e.g. inside an Agent Manager pod.
+    internal_url: str | None = None
+
+    @property
+    def base_path(self) -> str:
+        """The path prefix the concierge is served under, e.g. `/melody` behind the Agent Manager gateway."""
+        return urlsplit(self.public_url).path.rstrip("/")
+
+    def backchannel(self, url: str) -> str:
+        """Rewrite an issuer-hosted endpoint URL onto `internal_url`, when one is set."""
+        if self.internal_url and url.startswith(self.issuer):
+            return self.internal_url + url[len(self.issuer) :]
+        return url
 
     @property
     def redirect_uri(self) -> str:
@@ -83,6 +97,7 @@ class OidcSettings:
             client_secret=secret,
             public_url=environ.get("CONCIERGE_PUBLIC_URL", DEFAULT_PUBLIC_URL).rstrip("/"),
             resource=environ.get("THUNDER_RESOURCE", DEFAULT_RESOURCE),
+            internal_url=environ.get("THUNDER_INTERNAL_URL", "").rstrip("/") or None,
         )
 
 
@@ -168,7 +183,7 @@ class OidcClient:
             AuthError: if the IdP rejects the code or returns no ID token.
         """
         response = await self._http.post(
-            (await self._discover())["token_endpoint"],
+            self._settings.backchannel((await self._discover())["token_endpoint"]),
             data={
                 "grant_type": "authorization_code",
                 "code": code,
@@ -221,14 +236,15 @@ class OidcClient:
 
     async def _key_set(self, refresh: bool) -> jwt.PyJWKSet:
         if self._jwks is None or refresh:
-            response = await self._http.get((await self._discover())["jwks_uri"])
+            response = await self._http.get(self._settings.backchannel((await self._discover())["jwks_uri"]))
             response.raise_for_status()
             self._jwks = jwt.PyJWKSet.from_dict(response.json())
         return self._jwks
 
     async def _discover(self) -> dict[str, Any]:
         if self._metadata is None:
-            response = await self._http.get(f"{self._settings.issuer}/.well-known/openid-configuration")
+            base = self._settings.internal_url or self._settings.issuer
+            response = await self._http.get(f"{base}/.well-known/openid-configuration")
             response.raise_for_status()
             self._metadata = response.json()
         return self._metadata

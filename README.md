@@ -130,7 +130,22 @@ Otherwise, server lists are in `mcp_servers*.json` (Claude Desktop `mcpServers` 
 docker build -t hardrock-concierge:dev .
 ```
 
-The image serves the web chat on port 9100. It reads the MCP servers from Agent Manager's `<PREFIX>_URL` / `<PREFIX>_API_KEY` variables (`MCP_FROM_ENV=true`) and calls the model through the gateway LLM provider (`LLM_BASE_URL`, `LLM_API_KEY`, with `LLM_API_KEY_HEADER=X-API-Key`). The deployment also needs the sign-in variables from `.env.thunder`, with `CONCIERGE_PUBLIC_URL` set to the URL browsers use and that URL registered through `AGENT_PUBLIC_URLS`. The pod must be able to reach ThunderID at `THUNDER_ISSUER`. This hasn't been tried in the cluster yet.
+The image serves the web chat on port 9100. It reads the MCP servers from Agent Manager's `<PREFIX>_URL` / `<PREFIX>_API_KEY` variables (`MCP_FROM_ENV=true`) and calls the model through the gateway LLM provider (`LLM_BASE_URL`, `LLM_API_KEY`, with `LLM_API_KEY_HEADER=X-API-Key`). It listens on port 8000 (`PORT`), the port Agent Manager gives the agent's service.
+
+Sign-in settings to add to the agent:
+
+| Variable | Value |
+|---|---|
+| `CONCIERGE_CLIENT_SECRET` (secret) | from `.env.thunder` |
+| `CONCIERGE_PUBLIC_URL` | the agent's public URL, e.g. `http://default-default.am-gateway.localhost:19080/<agent>`. Its path becomes the prefix for every redirect. |
+
+That URL must also be registered with ThunderID: re-run `thunder-setup.sh` with it added to `AGENT_PUBLIC_URLS`. `THUNDER_ISSUER` defaults to the browser-facing `http://default-idp.amp.localhost:8080`. The pod can't resolve that name, so the image sets `THUNDER_INTERNAL_URL` to Thunder's in-cluster service on port 8090, which the agent sandbox's network policy allows. Discovery, token and JWKS calls go there, and the issuer check is unchanged.
+
+Agent Manager's gateway puts an API key in front of the agent's public URL, so a browser gets `401 Valid API key required` there. Either open the endpoint up in Agent Manager, or for a demo port-forward the service and use the already-registered `http://localhost:9100` (set `CONCIERGE_PUBLIC_URL` to that):
+
+```bash
+kubectl --kubeconfig <(k3d kubeconfig get amp-local) -n <agent namespace> port-forward svc/<agent> 9100:8000
+```
 
 Hosted pods can only reach the gateway, not the Mac directly, so both the model and the MCP servers go through it. The MCP servers are registered in the console from their public tunnel URLs (next section).
 

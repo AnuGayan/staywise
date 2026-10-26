@@ -278,3 +278,45 @@ def test_unknown_or_missing_session_is_anonymous() -> None:
     assert auth.guest(None) is None
     assert auth.guest("nope") is None
     auth.logout("nope")
+
+
+def test_backchannel_rewrites_issuer_urls_onto_the_internal_url() -> None:
+    settings = OidcSettings.from_env(
+        {
+            "CONCIERGE_CLIENT_SECRET": "x",
+            "THUNDER_ISSUER": "http://default-idp.amp.localhost:8080",
+            "THUNDER_INTERNAL_URL": "http://thunder.svc:8090/",
+            "CONCIERGE_PUBLIC_URL": "http://gw.localhost:19080/melody/",
+        }
+    )
+    assert (
+        settings.backchannel("http://default-idp.amp.localhost:8080/oauth2/token")
+        == "http://thunder.svc:8090/oauth2/token"
+    )
+    assert settings.backchannel("http://elsewhere/oauth2/jwks") == "http://elsewhere/oauth2/jwks"
+    assert settings.base_path == "/melody"
+    assert settings.redirect_uri == "http://gw.localhost:19080/melody/auth/callback"
+    assert SETTINGS.base_path == ""
+    assert SETTINGS.backchannel(f"{ISSUER}/oauth2/token") == f"{ISSUER}/oauth2/token"
+
+
+async def test_internal_url_carries_every_backchannel_call(thunder: FakeThunder) -> None:
+    internal = OidcSettings(**{**SETTINGS.__dict__, "internal_url": "http://thunder.internal:8090"})
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.url.host}{request.url.path}")
+        # The internal service answers as the public issuer, like a real ThunderID does.
+        return thunder.handler(request)
+
+    client = OidcClient(internal, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    authorize = await client.authorization_url("s", "n", "c")
+    thunder.next_id_token = thunder.id_token()
+    grant = await client.exchange_code("code", "verifier")
+    await client.verify_id_token(grant.id_token, "n")
+    assert authorize.startswith(f"{ISSUER}/oauth2/authorize?")  # the browser still goes to the public issuer
+    assert seen == [
+        "thunder.internal/.well-known/openid-configuration",
+        "thunder.internal/oauth2/token",
+        "thunder.internal/oauth2/jwks",
+    ]

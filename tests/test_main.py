@@ -18,6 +18,7 @@ class FailingAgent:
 
 def test_parse_args_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
     monkeypatch.delenv("CONCIERGE_MEMBER_ID", raising=False)
     args = parse_args([])
     assert args.model == DEFAULT_MODEL
@@ -113,3 +114,9 @@ async def test_run_exits_2_when_env_has_no_mcp_servers(
         monkeypatch.delenv(f"{prefix}_API_KEY", raising=False)
     assert await run(parse_args(["--mcp-from-env", "-p", "hi"])) == 2
     assert "no MCP servers configured in the environment" in capsys.readouterr().err
+
+
+def test_port_comes_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PORT", "8000")
+    assert parse_args([]).port == 8000
+    assert parse_args(["--port", "9200"]).port == 9200

@@ -121,6 +121,12 @@ api GET "/applications/$ID_APP"
 log "application: $(jq -r '.name' <<<"$API_BODY")"
 
 write_kv() { printf "%s='%s'\n" "$1" "$2"; }
+MANAGED_KEYS='THUNDER_ISSUER|THUNDER_RESOURCE|CONCIERGE_CLIENT_ID|CONCIERGE_CLIENT_SECRET|CONCIERGE_PUBLIC_URL|DEMO_USERS|DEMO_PASSWORD'
+# Lines this script doesn't manage (e.g. keys you added by hand) are carried over unchanged.
+kept_lines=""
+if [[ -f "$ENV_FILE" ]]; then
+  kept_lines=$(grep -v -E "^[[:space:]]*(#|($MANAGED_KEYS)[[:space:]]*=|$)" "$ENV_FILE" || true)
+fi
 umask 077
 {
   echo "# Written by wso2/thunder/thunder-setup.sh. Holds secrets: do not commit."
@@ -131,6 +137,9 @@ umask 077
   write_kv CONCIERGE_PUBLIC_URL "${public_urls[0]%/}"
   write_kv DEMO_USERS "alex,priya,daniel"
   write_kv DEMO_PASSWORD "$DEMO_PASSWORD"
+  if [[ -n "$kept_lines" ]]; then
+    printf '%s\n' "$kept_lines"
+  fi
 } >"$ENV_FILE"
 log "wrote $ENV_FILE (client secret and demo password; mode 600)"
 log "done. Start the concierge with:  set -a; source $ENV_FILE; set +a; python -m concierge --serve"

@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir ".[amp]"
 ENV MCP_FROM_ENV=true \
     MCP_ENV_PREFIXES=HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY \
     LLM_API_KEY_HEADER=X-API-Key \
+    PORT=8000 \
+    THUNDER_INTERNAL_URL=http://amp-thunder-default-default-service.amp-thunder-default-default.svc.cluster.local:8090 \
     OLLAMA_MODEL=qwen3:1.7b \
     CONCIERGE_MEMBERS=/app/config/members.json
 # Tracing: Agent Manager injects AMP_OTEL_ENDPOINT and AMP_AGENT_API_KEY; amp-instrument exports
@@ -23,5 +25,5 @@ ENV MCP_FROM_ENV=true \
 # deployment, and register CONCIERGE_PUBLIC_URL with AGENT_PUBLIC_URLS when running thunder-setup.sh.
 
 USER 10001
-EXPOSE 9100
-CMD ["amp-instrument", "hardrock-concierge", "--serve", "--host", "0.0.0.0", "--port", "9100"]
+EXPOSE 8000
+CMD ["amp-instrument", "hardrock-concierge", "--serve", "--host", "0.0.0.0"]

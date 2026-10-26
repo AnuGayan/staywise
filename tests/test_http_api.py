@@ -232,3 +232,18 @@ def test_login_reports_an_unreachable_thunder() -> None:
     response = TestClient(app, follow_redirects=False).get("/login")
     assert response.status_code == 502
     assert "cannot reach ThunderID" in response.text
+
+
+def test_redirects_stay_under_the_gateway_path_prefix() -> None:
+    def new_agent(guest: SignedInGuest, observer: ToolCallObserver) -> Agent:
+        return Agent(EchoLlm(), FakeTools(), "m", on_tool_call=observer)
+
+    idp = FakeIdp()
+    app = create_app(Runtime(model="m", tool_names=[], new_agent=new_agent), WebAuth(idp, USERS), base_path="/melody")
+    client = TestClient(app, follow_redirects=False)
+    assert client.get("/").headers["location"] == "/melody/login"
+    client.get("/login")
+    signed_in = client.get("/auth/callback", params={"state": idp.last_state, "code": "c"})
+    assert signed_in.headers["location"] == "/melody/"
+    failed = client.get("/auth/callback", params={"state": "forged", "code": "c"})
+    assert "href='/melody/login'" in failed.text
