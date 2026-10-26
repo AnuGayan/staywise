@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "staywise"
+version = "0.1.0"
+description = "Hotel concierge agent demoing automatic and user-interactive OAuth step-up with ThunderID and the WSO2 AI gateway."
+requires-python = ">=3.11"
+dependencies = [
+    # 1.23.0 is the last SDK release whose native MCP protocol is 2025-06-18,
+    # the spec version the WSO2 AI gateway (1.2.x) MCP proxies accept.
+    "mcp==1.23.0",
+    "ollama>=0.6,<1",
+    "httpx>=0.28,<1",
+    "pyjwt[crypto]>=2.10,<3",
+    "pyyaml>=6",
+    "sse-starlette>=2",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[tool.setuptools]
+packages = ["staywise", "staywise.auth", "servers"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore:Field 'lifespan' has an incomplete definition"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]

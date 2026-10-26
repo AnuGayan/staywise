@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "catalog": { "url": "${WSO2_GATEWAY_URL:-http://default-default.gateway.localhost:19080}/staywise-catalog/mcp" },
+    "reservations": { "url": "${WSO2_GATEWAY_URL:-http://default-default.gateway.localhost:19080}/staywise-reservations/mcp" },
+    "payments": { "url": "${WSO2_GATEWAY_URL:-http://default-default.gateway.localhost:19080}/staywise-payments/mcp" },
+    "concierge": { "url": "${WSO2_GATEWAY_URL:-http://default-default.gateway.localhost:19080}/staywise-concierge/mcp" }
+  }
+}

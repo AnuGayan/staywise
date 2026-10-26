@@ -1,0 +1,29 @@
+# How the StayWise agent may obtain each scope. Anything not listed cannot be obtained.
+#
+#   auto-obo    token exchange from the user's login grant: no prompt, the token's `act` claim names the agent
+#   auto-agent  the agent's own identity (client credentials): no prompt, `sub` is the agent
+#   user        interactive MFA through the step-up app: the guest has to approve
+
+# Requested at login. The user consents once to this envelope; the agent only ever sends
+# narrower tokens to the MCP servers. payment:highvalue is deliberately absent.
+login_scopes: [openid, profile, hotel:read, booking:read, booking:write, payment:charge]
+
+scopes:
+  hotel:read: auto-obo
+  booking:read: auto-obo
+  booking:write: auto-obo
+  payment:charge: auto-obo
+  payment:highvalue: user
+  ops:notify: auto-agent
+
+# Each MCP server starts with the least privilege that lets it list tools and read.
+servers:
+  catalog: {identity: auto-obo, baseline: [hotel:read]}
+  reservations: {identity: auto-obo, baseline: [booking:read]}
+  payments: {identity: auto-obo, baseline: [booking:read]}
+  concierge: {identity: auto-agent, baseline: [ops:notify]}
+
+user_stepup:
+  acr_values: mfa
+  scopes: [openid, payment:highvalue]
+  timeout_seconds: 120

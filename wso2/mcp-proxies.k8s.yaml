@@ -1,0 +1,142 @@
+# StayWise MCP proxies on the Agent Manager gateway (default-default, gateway 1.2.1:
+# mcp-auth v1.2.1, mcp-authz v1.1.1). Applied straight to the gateway operator, as the
+# console's SSRF guard rejects upstreams on private addresses.
+#
+#   KUBECONFIG=<(k3d kubeconfig get amp-local) kubectl -n default-default apply -f wso2/mcp-proxies.k8s.yaml
+#   remove: kubectl -n default-default delete mcp -l app.kubernetes.io/part-of=staywise
+#
+# Upstreams use 192.168.5.2 (the Mac as seen from Colima/k3d) because host.k3d.internal does
+# not resolve in this cluster. Start the servers with `--allowed-host 192.168.5.2`.
+#
+# mcp-auth   validates the Thunder JWT (key manager ThunderKeyManager is already configured on
+#            this gateway) and forwards it (as X-Forwarded-Authorization) so the servers can
+#            check it again.
+# mcp-authz  coarse per-tool scopes; answers 403 insufficient_scope with the missing scope.
+#            Amount-dependent rules (charges over $500, cancelling prepaid non-refundable stays)
+#            live in the servers (servers/*_server.py create_rules), which the gateway cannot express.
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: Mcp
+metadata:
+  name: staywise-catalog-mcp
+  labels:
+    gateway.api-platform.wso2.com/restapi-target: api-platform-default-default
+    app.kubernetes.io/part-of: staywise
+spec:
+  displayName: StayWise Catalog MCP
+  version: v1.0
+  context: /staywise-catalog
+  specVersion: "2025-06-18"
+  upstream:
+    url: http://192.168.5.2:8101/mcp
+    hostRewrite: auto
+  policies:
+    - name: mcp-auth
+      version: v1
+      params:
+        issuers: [ThunderKeyManager]
+        requiredScopes: [hotel:read]
+        forwardToken: true
+    - name: mcp-authz
+      version: v1
+      params:
+        tools:
+          - name: "*"
+            scopes: {anyOf: [hotel:read]}
+---
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: Mcp
+metadata:
+  name: staywise-reservations-mcp
+  labels:
+    gateway.api-platform.wso2.com/restapi-target: api-platform-default-default
+    app.kubernetes.io/part-of: staywise
+spec:
+  displayName: StayWise Reservations MCP
+  version: v1.0
+  context: /staywise-reservations
+  specVersion: "2025-06-18"
+  upstream:
+    url: http://192.168.5.2:8102/mcp
+    hostRewrite: auto
+  policies:
+    - name: mcp-auth
+      version: v1
+      params:
+        issuers: [ThunderKeyManager]
+        requiredScopes: [booking:read]
+        forwardToken: true
+    - name: mcp-authz
+      version: v1
+      params:
+        tools:
+          - name: list_my_reservations
+            scopes: {anyOf: [booking:read]}
+          - name: create_reservation
+            scopes: {anyOf: [booking:write]}
+          - name: change_room
+            scopes: {anyOf: [booking:write]}
+          # The MFA token (payment:highvalue only) must reach the server, which decides per booking.
+          - name: cancel_reservation
+            scopes: {anyOf: [booking:write, payment:highvalue]}
+---
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: Mcp
+metadata:
+  name: staywise-payments-mcp
+  labels:
+    gateway.api-platform.wso2.com/restapi-target: api-platform-default-default
+    app.kubernetes.io/part-of: staywise
+spec:
+  displayName: StayWise Payments MCP
+  version: v1.0
+  context: /staywise-payments
+  specVersion: "2025-06-18"
+  upstream:
+    url: http://192.168.5.2:8103/mcp
+    hostRewrite: auto
+  policies:
+    - name: mcp-auth
+      version: v1
+      params:
+        issuers: [ThunderKeyManager]
+        requiredScopes: [booking:read]
+        forwardToken: true
+    - name: mcp-authz
+      version: v1
+      params:
+        tools:
+          - name: get_loyalty_balance
+            scopes: {anyOf: [booking:read]}
+          - name: charge_payment
+            scopes: {anyOf: [payment:charge, payment:highvalue]}
+          - name: redeem_points
+            scopes: {anyOf: [payment:charge, payment:highvalue]}
+---
+apiVersion: gateway.api-platform.wso2.com/v1
+kind: Mcp
+metadata:
+  name: staywise-concierge-mcp
+  labels:
+    gateway.api-platform.wso2.com/restapi-target: api-platform-default-default
+    app.kubernetes.io/part-of: staywise
+spec:
+  displayName: StayWise Concierge MCP
+  version: v1.0
+  context: /staywise-concierge
+  specVersion: "2025-06-18"
+  upstream:
+    url: http://192.168.5.2:8104/mcp
+    hostRewrite: auto
+  policies:
+    - name: mcp-auth
+      version: v1
+      params:
+        issuers: [ThunderKeyManager]
+        requiredScopes: [ops:notify]
+        forwardToken: true
+    - name: mcp-authz
+      version: v1
+      params:
+        tools:
+          - name: "*"
+            scopes: {anyOf: [ops:notify]}

@@ -1,0 +1,16 @@
+# Only staywise/, config/, pyproject.toml and web/ go into the image. Never the generated secrets.
+.env
+.env.*
+.git
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+*.egg-info
+data
+tests
+scripts
+servers
+wso2
+web/node_modules
+web/dist

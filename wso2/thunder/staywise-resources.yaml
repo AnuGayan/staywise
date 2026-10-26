@@ -1,0 +1,452 @@
+# StayWise demo resources for ThunderID 1.0.0.
+#
+# Applied by thunder-setup.sh through POST /import (upsert by id), so re-running is safe.
+# Every double-brace template variable below is resolved server-side from the `variables` object
+# the setup script sends with the import request (comments are templated too, so never put a
+# template expression in a comment). No secret values live in this file.
+#
+# IDs are fixed so that re-imports update in place and teardown can address them.
+# Contract names (other code depends on them):
+#   resource server  urn:staywise:hotel-api  (delimiter ":")
+#   roles            staywise-guest, staywise-agent
+#   apps             staywise-web, staywise-stepup
+#   agent            staywise-concierge-agent
+#   user             guest
+
+# --- SMS sender (custom HTTP gateway -> mock phone) ---------------------------------------
+resource_type: connection
+id: 019a5ca1-0000-7000-8000-000000000001
+type: sms-gateway
+name: staywise-mock-phone
+description: StayWise mock phone SMS gateway (used by the step-up OTP flow)
+url: "{{.MOCK_PHONE_URL}}"
+httpMethod: POST
+contentType: JSON
+httpHeaders: "X-Mock-Phone-Key: {{.MOCK_PHONE_KEY}}"
+
+---
+# --- Resource server: StayWise Hotel API ---------------------------------------------------
+resource_type: resource_server
+id: 019a5ca1-0000-7000-8000-000000000010
+name: StayWise Hotel API
+description: StayWise hotel concierge API (hotels, bookings, payments, ops)
+identifier: urn:staywise:hotel-api
+ouHandle: default
+delimiter: ":"
+resources:
+  - name: Hotel
+    handle: hotel
+    actions:
+      - name: Read
+        handle: read
+        description: Search hotels and read hotel details
+  - name: Booking
+    handle: booking
+    actions:
+      - name: Read
+        handle: read
+        description: Read the guest's bookings
+      - name: Write
+        handle: write
+        description: Create, change or cancel bookings
+  - name: Payment
+    handle: payment
+    actions:
+      - name: Charge
+        handle: charge
+        description: Charge the guest's card for normal-value amounts
+      - name: High Value
+        handle: highvalue
+        description: Charge high-value amounts (requires step-up MFA)
+  - name: Ops
+    handle: ops
+    actions:
+      - name: Notify
+        handle: notify
+        description: Send operational notifications (agent-only)
+
+---
+# --- Flows ---------------------------------------------------------------------------------
+# Normal password login for staywise-web.
+resource_type: flow
+id: 019a5ca1-0000-7000-8000-000000000020
+name: StayWise Password Login
+handle: staywise-password-login
+flowType: AUTHENTICATION
+nodes:
+- id: start
+  type: START
+  onSuccess: prompt_credentials
+- id: prompt_credentials
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: text_title
+      label: Sign in to StayWise
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_credentials
+      components:
+      - id: input_username
+        ref: username
+        type: TEXT_INPUT
+        label: Username
+        required: true
+        placeholder: Enter your username
+      - id: input_password
+        ref: password
+        type: PASSWORD_INPUT
+        label: Password
+        required: true
+        placeholder: Enter your password
+      - type: ACTION
+        id: action_login
+        label: Sign in
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: input_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_password
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: action_login
+      nextNode: credentials_auth
+- id: credentials_auth
+  type: TASK_EXECUTION
+  executor:
+    name: CredentialsAuthExecutor
+  onSuccess: authorization_check
+  onIncomplete: prompt_credentials
+- id: authorization_check
+  type: TASK_EXECUTION
+  executor:
+    name: AuthorizationExecutor
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+
+---
+# Step-up login for staywise-stepup: password, then SMS OTP. The first prompt is a
+# LOGIN_OPTIONS node whose single action is mapped to the auth class "mfa", so a request with
+# acr_values=mfa resolves to it and the completed class "mfa" is emitted as the ID token `acr`.
+resource_type: flow
+id: 019a5ca1-0000-7000-8000-000000000021
+name: StayWise Step-up MFA Login
+handle: staywise-stepup-mfa
+flowType: AUTHENTICATION
+nodes:
+- id: start
+  type: START
+  onSuccess: prompt_credentials
+- id: prompt_credentials
+  type: PROMPT
+  variant: LOGIN_OPTIONS
+  properties:
+    authMethodMapping:
+      mfa: action_login
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: text_title
+      label: Confirm it's you
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_credentials
+      components:
+      - id: input_username
+        ref: username
+        type: TEXT_INPUT
+        label: Username
+        required: true
+        placeholder: Enter your username
+      - id: input_password
+        ref: password
+        type: PASSWORD_INPUT
+        label: Password
+        required: true
+        placeholder: Enter your password
+      - type: ACTION
+        id: action_login
+        label: Continue
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: input_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_password
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: action_login
+      nextNode: credentials_auth
+- id: credentials_auth
+  type: TASK_EXECUTION
+  executor:
+    name: CredentialsAuthExecutor
+  onSuccess: otp_generate
+  onIncomplete: prompt_credentials
+- id: otp_generate
+  type: TASK_EXECUTION
+  properties:
+    otpLength: 6
+    otpUseNumericOnly: true
+    otpValidityPeriodSeconds: 300
+  executor:
+    name: OTPExecutor
+    mode: generate
+  onSuccess: otp_send
+- id: otp_send
+  type: TASK_EXECUTION
+  properties:
+    senderId: 019a5ca1-0000-7000-8000-000000000001
+    smsTemplate: OTP
+  executor:
+    name: SMSExecutor
+  onSuccess: prompt_otp
+- id: prompt_otp
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: text_otp_title
+      label: Enter the code we sent to your phone
+      variant: HEADING_3
+    - type: BLOCK
+      id: block_otp
+      components:
+      - type: OTP_INPUT
+        id: otp_input
+        ref: otp
+        label: One-time code
+        required: true
+      - type: ACTION
+        id: action_verify
+        label: Verify
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+    action:
+      ref: action_verify
+      nextNode: otp_verify
+- id: otp_verify
+  type: TASK_EXECUTION
+  executor:
+    name: OTPExecutor
+    mode: verify
+    inputs:
+    - ref: otp_input
+      identifier: otp
+      type: OTP_INPUT
+      required: true
+  onSuccess: authorization_check
+  onIncomplete: prompt_otp
+- id: authorization_check
+  type: TASK_EXECUTION
+  executor:
+    name: AuthorizationExecutor
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+
+---
+# --- Demo user -----------------------------------------------------------------------------
+resource_type: user
+id: 019a5ca1-0000-7000-8000-000000000030
+type: Person
+ouHandle: default
+attributes:
+  username: "{{.DEMO_USER}}"
+  email: "{{.DEMO_USER_EMAIL}}"
+  name: Demo Guest
+  given_name: Demo
+  family_name: Guest
+  mobile_number: "{{.DEMO_USER_MOBILE}}"
+credentials:
+  password: "{{.DEMO_USER_PASSWORD}}"
+
+---
+# --- Applications --------------------------------------------------------------------------
+resource_type: application
+id: 019a5ca1-0000-7000-8000-000000000040
+name: staywise-web
+description: StayWise web UI / agent backend (confidential client)
+type: fullstack
+ouHandle: default
+authFlowHandle: staywise-password-login
+allowedUserTypes:
+  - Person
+inboundAuthConfig:
+  - type: oauth2
+    config:
+      clientId: "{{.WEB_CLIENT_ID}}"
+      clientSecret: "{{.WEB_CLIENT_SECRET}}"
+      redirectUris:
+#WEB_REDIRECT_URIS#
+      grantTypes:
+        - authorization_code
+        - refresh_token
+        - urn:ietf:params:oauth:grant-type:token-exchange
+      responseTypes:
+        - code
+      tokenEndpointAuthMethod: client_secret_basic
+      publicClient: false
+      pkceRequired: true
+      scopes:
+        - openid
+        - profile
+        - hotel:read
+        - booking:read
+        - booking:write
+        - payment:charge
+      token:
+        accessToken:
+          userConfig:
+            validityPeriod: 3600
+            attributes:
+              - username
+              - name
+        idToken:
+          validityPeriod: 3600
+          userAttributes:
+            - username
+            - name
+            - given_name
+            - family_name
+        refreshToken:
+          validityPeriod: 86400
+      scopeClaims:
+        profile:
+          - name
+          - given_name
+          - family_name
+          - username
+
+---
+resource_type: application
+id: 019a5ca1-0000-7000-8000-000000000041
+name: staywise-stepup
+description: StayWise step-up client (password + SMS OTP) for high-value payments
+type: fullstack
+ouHandle: default
+authFlowHandle: staywise-stepup-mfa
+allowedUserTypes:
+  - Person
+inboundAuthConfig:
+  - type: oauth2
+    config:
+      clientId: "{{.STEPUP_CLIENT_ID}}"
+      clientSecret: "{{.STEPUP_CLIENT_SECRET}}"
+      redirectUris:
+#STEPUP_REDIRECT_URIS#
+      grantTypes:
+        - authorization_code
+      responseTypes:
+        - code
+      tokenEndpointAuthMethod: client_secret_basic
+      publicClient: false
+      pkceRequired: true
+      scopes:
+        - openid
+        - payment:highvalue
+      token:
+        accessToken:
+          userConfig:
+            validityPeriod: 300
+            attributes:
+              - username
+        idToken:
+          validityPeriod: 300
+          userAttributes:
+            - username
+            - name
+#STEPUP_ACR_BLOCK#
+
+---
+# --- Agent identity ------------------------------------------------------------------------
+resource_type: agent
+id: 019a5ca1-0000-7000-8000-000000000050
+name: staywise-concierge-agent
+description: StayWise hotel concierge agent
+ouHandle: default
+type: default
+attributes:
+  modelProvider: anthropic
+  function: assistant
+inboundAuthConfig:
+  - type: oauth2
+    config:
+      clientId: "{{.AGENT_CLIENT_ID}}"
+      clientSecret: "{{.AGENT_CLIENT_SECRET}}"
+      grantTypes:
+        - client_credentials
+        - urn:ietf:params:oauth:grant-type:token-exchange
+      tokenEndpointAuthMethod: client_secret_basic
+      publicClient: false
+      token:
+        accessToken:
+          clientConfig:
+            validityPeriod: 3600
+            attributes:
+              - name
+
+---
+# --- Roles ---------------------------------------------------------------------------------
+resource_type: role
+id: 019a5ca1-0000-7000-8000-000000000060
+name: staywise-guest
+description: StayWise guest permissions (assigned to the demo user)
+ouHandle: default
+permissions:
+  - resourceServerId: 019a5ca1-0000-7000-8000-000000000010
+    permissions:
+      - hotel:read
+      - booking:read
+      - booking:write
+      - payment:charge
+      - payment:highvalue
+assignments:
+  - id: 019a5ca1-0000-7000-8000-000000000030
+    type: user
+
+---
+resource_type: role
+id: 019a5ca1-0000-7000-8000-000000000061
+name: staywise-agent
+description: StayWise concierge agent's own permissions
+ouHandle: default
+permissions:
+  - resourceServerId: 019a5ca1-0000-7000-8000-000000000010
+    permissions:
+      - ops:notify
+assignments:
+  - id: 019a5ca1-0000-7000-8000-000000000050
+    type: agent
