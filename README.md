@@ -157,6 +157,45 @@ Run the UI on your machine. Its default `AGENT_URL` is the hosted agent's endpoi
 
 Hosted pods can only reach the gateway, not the Mac directly, so both the model and the MCP servers go through it. The MCP servers are registered in the console from their public tunnel URLs (next section).
 
+## End-to-end check
+
+`hardrock-concierge-e2e` checks the deployed system the way a guest uses it, with no browser:
+
+1. **Signs in** a demo guest at ThunderID: authorize with PKCE, then ThunderID's login flow API (`/flow/execute`) with the username and `DEMO_PASSWORD`, then `/oauth2/auth/callback`, then the code exchange. It uses the UI's app (`CONCIERGE_CLIENT_ID` / `CONCIERGE_CLIENT_SECRET`), so it gets the same user token the UI would.
+2. **Checks the gateway**: a request with no token and one with a forged token must both be rejected.
+3. **Plays a conversation** through the agent's gateway URL with the user token, one step per capability:
+   - hotel info and room types
+   - availability
+   - booking a room, fetching it, listing bookings, then cancelling it
+   - points balance and points activity
+
+   Each step checks:
+   - the expected tool was called
+   - no tool returned an error, such as a refused token exchange
+   - every call used the signed-in guest's member id
+   - the result itself: dates, an `HRM-` confirmation number, the booking showing up, then `cancelled`
+
+   A step whose tool the model skipped is retried once in a fresh conversation with a hint. The booking it makes is cancelled again; if not, the report says so.
+
+```bash
+hardrock-concierge-e2e                 # reads .env.thunder; signs in as alex; agent = UI default (melody)
+hardrock-concierge-e2e --user priya -v # another guest; print every reply and tool call
+```
+
+It reads settings from the environment first, then `--env-file` (default `.env.thunder`, tolerating `KEY = 'value'` lines). `AGENT_URL` or `--agent-url` picks the agent. It exits 0 only if everything passed:
+
+```
+PASS sign in (code + PKCE)         0.7s  user token for alex
+PASS no token is rejected          0.0s  HTTP 401
+PASS forged token is rejected      0.0s  HTTP 401
+PASS hotel info                    2.9s  get_hotel_info
+...
+PASS book a room                   7.1s  booked HRM-D8NHMR
+...
+PASS points balance                3.5s  18,450 points, Legend
+12 passed, 0 failed, 0 skipped
+```
+
 ## Public MCP URLs for the Agent Manager console
 
 The console won't register MCP servers on private addresses. `scripts/mcp-tunnels.sh` puts each local server behind a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (needs `cloudflared`; no account):

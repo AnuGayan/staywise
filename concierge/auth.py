@@ -276,7 +276,7 @@ class WebAuth:
         self._pending[state] = _PendingLogin(verifier, nonce, self._clock())
         while len(self._pending) > MAX_PENDING_LOGINS:
             self._pending.popitem(last=False)
-        return await self._idp.authorization_url(state, nonce, _code_challenge(verifier))
+        return await self._idp.authorization_url(state, nonce, code_challenge(verifier))
 
     async def complete_login(self, state: str, code: str) -> tuple[str, int]:
         """Finish a sign-in from the callback. Returns the new session id and its lifetime in seconds.
@@ -325,6 +325,7 @@ def _user_from(claims: Mapping[str, Any], access_token: str) -> SignedInUser:
     )
 
 
-def _code_challenge(verifier: str) -> str:
+def code_challenge(verifier: str) -> str:
+    """The PKCE S256 challenge for `verifier`."""
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")

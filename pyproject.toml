@@ -23,6 +23,7 @@ dependencies = [
 # A named entry point, so Traceloop (which names the service after argv[0]) reports "hardrock-concierge".
 hardrock-concierge = "concierge.__main__:main"
 hardrock-concierge-ui = "concierge.ui_main:main"
+hardrock-concierge-e2e = "concierge.e2e:main"
 
 [project.optional-dependencies]
 dev = ["opentelemetry-sdk>=1.20", "pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
