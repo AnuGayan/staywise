@@ -212,6 +212,34 @@ Register each printed URL as an MCP server in the console. Each tunnel rewrites 
 - The URLs are random and **change every time the tunnels start**, so re-register them in the console after a restart. For stable URLs, use a named Cloudflare tunnel on your own domain, or an ngrok static domain.
 - Quick tunnels have no uptime guarantee. They're fine for a demo, not for anything longer-lived.
 
+## Moesif analytics (gateway)
+
+`wso2/gateway/enable-moesif.sh` turns on the API Platform gateway's built-in Moesif publisher, so every request through the gateway is sent to Moesif: agent, MCP and LLM traffic alike.
+
+```bash
+MOESIF_APPLICATION_ID=<collector application id> ./wso2/gateway/enable-moesif.sh   # enable / change the id
+./wso2/gateway/enable-moesif.sh --disable                                         # turn it off again
+```
+
+It changes three things in `default-default`:
+
+- **Secret `gateway-moesif`** holding `APIP_GW_ANALYTICS_PUBLISHERS_MOESIF_APPLICATION_ID`.
+- **ConfigMap `api-platform-default-default-gw-gateway-config`:** an `[analytics]` section with `enabled_publishers = ["moesif"]`. Its `application_id` is `{{ env "APIP_GW_ANALYTICS_PUBLISHERS_MOESIF_APPLICATION_ID" "" }}`, which the policy engine resolves at load time, so the id is never in the ConfigMap.
+- **The gateway controller and runtime Deployments:** they take env from that Secret, and both are restarted.
+
+The script never puts the collector id on a command line or in this repo.
+
+Bodies and headers are not captured: `[collector]` stays at its defaults.
+
+The objects belong to the Helm release `api-platform-default-default-gw`, but the script patches them in place rather than running `helm upgrade`. Helm 4 re-renders this chart's integer settings, such as `onfailurestatuscode = 401`, as floats. A later `helm upgrade` of that release will drop the analytics settings, so re-run the script afterwards.
+
+Check it with:
+
+```bash
+kubectl --kubeconfig <(k3d kubeconfig get amp-local) -n default-default logs deploy/api-platform-default-default-gw-gateway-gateway-runtime | grep -i moesif
+# "Moesif publisher added"; send errors show as "Moesif API request error"
+```
+
 ## Tracing (Agent Manager)
 
 Docker-built agents bring their own instrumentation. The image installs the `amp` extra (`amp-instrumentation==0.4.1`) and starts with `amp-instrument hardrock-concierge ...`. A startup hook initialises Traceloop, which exports OTLP/HTTP spans to `AMP_OTEL_ENDPOINT` with the `x-amp-api-key: $AMP_AGENT_API_KEY` header. Agent Manager injects both variables into the pod. Without them the hook prints an error and the agent runs untraced.
