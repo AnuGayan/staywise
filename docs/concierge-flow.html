@@ -4,7 +4,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: one reading column; figures break out wider. Blue-grey ink = built now, burnt orange = added in the proxy phase. */
+/* Layout: one reading column; figures break out wider. Ink = in place now, burnt orange = enforcement added later. */
 :root {
   --bg: #f4f5f8;
   --surface: #ffffff;
@@ -14,6 +14,7 @@
   --band: #e9ecf2;
   --accent: #c2410c;
   --accent-soft: #fdebdd;
+  --check: #1f6f4a;
   --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -21,13 +22,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #11141a; --surface: #1a1f28; --fg: #e6e9ef; --muted: #9aa3b5;
-    --line: #3a4252; --band: #1f2530; --accent: #f08a4b; --accent-soft: #3a2416;
+    --line: #3a4252; --band: #1f2530; --accent: #f08a4b; --accent-soft: #3a2416; --check: #5fc596;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #11141a; --surface: #1a1f28; --fg: #e6e9ef; --muted: #9aa3b5;
-  --line: #3a4252; --band: #1f2530; --accent: #f08a4b; --accent-soft: #3a2416;
+  --line: #3a4252; --band: #1f2530; --accent: #f08a4b; --accent-soft: #3a2416; --check: #5fc596;
   color-scheme: dark;
 }
 body {
@@ -44,7 +45,7 @@ body {
   display: grid;
   gap: 48px;
 }
-header { display: grid; gap: 10px; max-width: 68ch; }
+header { display: grid; gap: 10px; max-width: 70ch; }
 .eyebrow {
   font: 500 12px/1 var(--mono);
   letter-spacing: 0.08em;
@@ -57,20 +58,7 @@ h2 { font-size: 24px; line-height: 1.2; }
 p { margin: 0; }
 .lede { color: var(--muted); font-size: 17px; }
 section { display: grid; gap: 14px; min-width: 0; }
-section > p { max-width: 68ch; }
-.tag {
-  display: inline-block;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 4px 7px;
-  border-radius: 3px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-  vertical-align: middle;
-  margin-left: 8px;
-}
-.tag.later { border-color: var(--accent); color: var(--accent); }
+section > p { max-width: 70ch; }
 figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
 .canvas {
   overflow-x: auto;
@@ -79,269 +67,267 @@ figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
   border-radius: 6px;
   padding: 12px;
 }
-.canvas svg { display: block; width: 100%; min-width: 720px; height: auto; color: var(--fg); }
-figcaption { color: var(--muted); font-size: 14px; max-width: 72ch; }
+.canvas svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--fg); }
+figcaption { color: var(--muted); font-size: 14px; max-width: 76ch; }
 code { font: 0.9em var(--mono); }
 
 /* SVG marks */
 .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.box-check { fill: var(--surface); stroke: var(--check); stroke-width: 1.6; }
 .box-new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
-.inner { fill: var(--surface); stroke: var(--accent); stroke-width: 1; }
 .edge { stroke: currentColor; stroke-width: 1.4; fill: none; }
-.edge-new { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+.edge-dim { stroke: var(--muted); stroke-width: 1.2; fill: none; }
 .dash { stroke-dasharray: 5 4; }
 .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 4 4; }
 .band { fill: var(--band); }
 .head { fill: currentColor; }
-.head-new { fill: var(--accent); }
+.head-dim { fill: var(--muted); }
 .t { fill: var(--fg); font: 600 13px var(--sans); }
 .s { fill: var(--muted); font: 11.5px var(--sans); }
 .m { fill: var(--muted); font: 11px var(--mono); }
-.m-new { fill: var(--accent); font: 500 11px var(--mono); }
+.ok { fill: var(--check); font: 600 11.5px var(--sans); }
+.later { fill: var(--accent); font: 500 11.5px var(--sans); }
 .lbl { fill: var(--fg); font: 11.5px var(--sans); }
-.lbl-new { fill: var(--accent); font: 500 11.5px var(--sans); }
+.mono { fill: var(--fg); font: 11px var(--mono); }
 .bandlbl { fill: var(--muted); font: 600 11px var(--mono); letter-spacing: 0.06em; }
+.note { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
 th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font: 600 12px var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 tr:last-child td { border-bottom: 0; }
+td.who { font-weight: 600; white-space: nowrap; }
 td.tool { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
-td.scope { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+td.scope { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+.yes { color: var(--check); font-weight: 600; }
+.later-text { color: var(--accent); font-weight: 500; }
 .rw { font: 500 11px var(--mono); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); }
 .rw.write { border-color: var(--fg); color: var(--fg); }
 tbody tr.first td { border-top: 2px solid var(--line); }
 
-ol.open { margin: 0; padding-left: 22px; display: grid; gap: 10px; max-width: 72ch; }
+ol.open { margin: 0; padding-left: 22px; display: grid; gap: 10px; max-width: 76ch; }
 ol.open strong { font-weight: 600; }
-.note { color: var(--muted); font-size: 14px; max-width: 72ch; border-left: 2px solid var(--line); padding-left: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 10px; border-radius: 2px; border: 1.6px solid; display: inline-block; }
+.swatch.check { border-color: var(--check); }
+.swatch.new { border-color: var(--accent); background: var(--accent-soft); }
 </style>
 
 <div class="page">
   <header>
-    <span class="eyebrow">full_flow · design before build</span>
+    <span class="eyebrow">full_flow · design</span>
     <h1>Hard Rock Concierge Flow</h1>
-    <p class="lede">A chat concierge for Hard Rock Hotel Miami that checks bookings, makes bookings and reads the guest's Unity by Hard Rock points balance. It uses three MCP servers. They have no auth now. WSO2 gateway proxies add authentication and per-tool authorization in a later phase.</p>
+    <p class="lede">A chat concierge for Hard Rock Hotel Miami that checks bookings, makes bookings and reads the guest's Unity by Hard Rock points. The UI signs the guest in with ThunderID. Agent Manager's gateway checks their token. The agent never checks it: it only reads who the guest is and swaps the token for a narrow one before each MCP call.</p>
   </header>
 
   <section>
-    <h2>Phase 1: what we build now <span class="tag">now</span></h2>
+    <h2>Architecture</h2>
     <figure>
       <div class="canvas">
-        <svg viewBox="0 0 940 400" role="img" aria-label="Phase 1: the guest chats with the concierge agent, which calls Ollama for reasoning and calls three MCP servers directly over HTTP with no authentication.">
+        <svg viewBox="0 0 960 460" role="img" aria-label="The guest uses the UI, which signs in with ThunderID and sends the user token through the Agent Manager gateway, which validates it, to the agent. The agent calls Ollama, exchanges the user token at ThunderID for one-scope tokens, and calls the MCP proxies, which reach the three MCP servers.">
           <defs>
             <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+            <marker id="a1d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-dim" d="M0,0 L10,5 L0,10 z"/></marker>
           </defs>
+          <!-- ThunderID -->
+          <rect class="box" x="360" y="20" width="240" height="56" rx="5"/>
+          <text class="t" x="480" y="44" text-anchor="middle">ThunderID</text>
+          <text class="s" x="480" y="63" text-anchor="middle">bundled in Agent Manager</text>
           <!-- Guest -->
-          <rect class="box" x="20" y="180" width="130" height="60" rx="5"/>
-          <text class="t" x="85" y="206" text-anchor="middle">Guest</text>
-          <text class="s" x="85" y="225" text-anchor="middle">web browser</text>
-          <line class="edge" x1="150" y1="210" x2="199" y2="210" marker-end="url(#a1)" marker-start="url(#a1)"/>
-          <text class="lbl" x="175" y="201" text-anchor="middle">chat</text>
-          <!-- Agent -->
-          <rect class="box" x="200" y="140" width="200" height="140" rx="5"/>
-          <text class="t" x="300" y="166" text-anchor="middle">Concierge agent</text>
-          <text class="s" x="300" y="190" text-anchor="middle">Web chat UI + HTTP API</text>
-          <text class="s" x="300" y="208" text-anchor="middle">Agent loop</text>
-          <text class="s" x="300" y="226" text-anchor="middle">McpHub · 9-tool catalogue</text>
-          <text class="m" x="300" y="262" text-anchor="middle">Agent Manager</text>
-          <!-- LLM -->
-          <line class="edge" x1="300" y1="281" x2="300" y2="329" marker-end="url(#a1)" marker-start="url(#a1)"/>
-          <text class="lbl" x="310" y="309">messages · tool_calls</text>
-          <rect class="box" x="200" y="330" width="200" height="50" rx="5"/>
-          <text class="t" x="300" y="352" text-anchor="middle">Ollama</text>
-          <text class="m" x="300" y="369" text-anchor="middle">qwen3:1.7b</text>
-          <!-- Agent straight to the bus -->
-          <line class="edge" x1="400" y1="210" x2="650" y2="210"/>
-          <text class="lbl" x="525" y="200" text-anchor="middle">MCP 2025-06-18 · Streamable HTTP</text>
-          <text class="s" x="525" y="228" text-anchor="middle">direct · no token</text>
-          <line class="edge" x1="650" y1="75" x2="650" y2="345"/>
-          <line class="edge" x1="650" y1="75" x2="689" y2="75" marker-end="url(#a1)"/>
-          <line class="edge" x1="650" y1="210" x2="689" y2="210" marker-end="url(#a1)"/>
-          <line class="edge" x1="650" y1="345" x2="689" y2="345" marker-end="url(#a1)"/>
-          <!-- Servers -->
-          <rect class="box" x="690" y="40" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="66">hotel-info</text>
-          <text class="m" x="905" y="66" text-anchor="end">:8101</text>
-          <text class="m" x="705" y="90">2 tools · static data</text>
-          <rect class="box" x="690" y="175" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="201">reservations</text>
-          <text class="m" x="905" y="201" text-anchor="end">:8102</text>
-          <text class="m" x="705" y="225">5 tools · SQLite bookings</text>
-          <rect class="box" x="690" y="310" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="336">unity-loyalty</text>
-          <text class="m" x="905" y="336" text-anchor="end">:8103</text>
-          <text class="m" x="705" y="360">2 tools · SQLite points</text>
-        </svg>
-      </div>
-      <figcaption>The agent connects to all three servers at start-up and combines their tools into one catalogue for the model. Calls go straight to each server's <code>/mcp</code> endpoint with no token, so any client that can reach a port can call any tool.</figcaption>
-    </figure>
-  </section>
-
-  <section>
-    <h2>Phase 2: the change later <span class="tag later">later</span></h2>
-    <figure>
-      <div class="canvas">
-        <svg viewBox="0 0 940 400" role="img" aria-label="Phase 2: the same agent and servers, with a WSO2 gateway inserted between them. The guest signs in with Thunder, the agent sends a bearer token, and the gateway checks it with mcp-auth and per-tool scopes with mcp-authz.">
-          <defs>
-            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
-            <marker id="a2n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-new" d="M0,0 L10,5 L0,10 z"/></marker>
-          </defs>
-          <!-- Thunder -->
-          <rect class="box-new" x="300" y="20" width="220" height="56" rx="5"/>
-          <text class="t" x="410" y="44" text-anchor="middle">Thunder IdP</text>
-          <text class="s" x="410" y="63" text-anchor="middle">bundled in Agent Manager</text>
-          <polyline class="edge-new" points="85,179 85,48 299,48" marker-end="url(#a2n)"/>
-          <text class="lbl-new" x="192" y="40" text-anchor="middle">sign in (OAuth)</text>
-          <line class="edge-new" x1="340" y1="77" x2="340" y2="139" marker-end="url(#a2n)"/>
-          <text class="lbl-new" x="348" y="113">access token</text>
-          <line class="edge-new dash" x1="490" y1="139" x2="490" y2="77" marker-end="url(#a2n)"/>
-          <text class="lbl-new" x="498" y="113">JWKS</text>
-          <!-- Guest -->
-          <rect class="box" x="20" y="180" width="130" height="60" rx="5"/>
-          <text class="t" x="85" y="206" text-anchor="middle">Guest</text>
-          <text class="s" x="85" y="225" text-anchor="middle">web browser</text>
-          <line class="edge" x1="150" y1="210" x2="199" y2="210" marker-end="url(#a2)" marker-start="url(#a2)"/>
-          <text class="lbl" x="175" y="201" text-anchor="middle">chat</text>
-          <!-- Agent -->
-          <rect class="box" x="200" y="140" width="200" height="140" rx="5"/>
-          <text class="t" x="300" y="166" text-anchor="middle">Concierge agent</text>
-          <text class="s" x="300" y="190" text-anchor="middle">Web chat UI + HTTP API</text>
-          <text class="s" x="300" y="208" text-anchor="middle">Agent loop</text>
-          <text class="s" x="300" y="226" text-anchor="middle">McpHub · 9-tool catalogue</text>
-          <text class="m" x="300" y="262" text-anchor="middle">Agent Manager</text>
-          <line class="edge" x1="300" y1="281" x2="300" y2="329" marker-end="url(#a2)" marker-start="url(#a2)"/>
-          <text class="lbl" x="310" y="309">messages · tool_calls</text>
-          <rect class="box" x="200" y="330" width="200" height="50" rx="5"/>
-          <text class="t" x="300" y="352" text-anchor="middle">Ollama</text>
-          <text class="m" x="300" y="369" text-anchor="middle">qwen3:1.7b</text>
+          <rect class="box" x="20" y="200" width="110" height="56" rx="5"/>
+          <text class="t" x="75" y="224" text-anchor="middle">Guest</text>
+          <text class="s" x="75" y="242" text-anchor="middle">browser</text>
+          <line class="edge" x1="130" y1="228" x2="169" y2="228" marker-end="url(#a1)" marker-start="url(#a1)"/>
+          <text class="lbl" x="150" y="219" text-anchor="middle">chat</text>
+          <!-- UI -->
+          <rect class="box" x="170" y="180" width="150" height="96" rx="5"/>
+          <text class="t" x="245" y="204" text-anchor="middle">Concierge UI</text>
+          <text class="m" x="245" y="222" text-anchor="middle">:9100 · your Mac</text>
+          <text class="s" x="245" y="244" text-anchor="middle">keeps the user token</text>
+          <text class="s" x="245" y="260" text-anchor="middle">server-side</text>
+          <polyline class="edge" points="245,179 245,48 359,48" marker-end="url(#a1)"/>
+          <text class="lbl" x="253" y="118">sign in</text>
+          <text class="m" x="253" y="134">code + PKCE</text>
           <!-- Gateway -->
-          <line class="edge-new" x1="400" y1="210" x2="459" y2="210" marker-end="url(#a2n)"/>
-          <text class="lbl-new" x="430" y="201" text-anchor="middle">Bearer</text>
-          <rect class="box-new" x="460" y="140" width="150" height="140" rx="5"/>
-          <text class="t" x="535" y="164" text-anchor="middle">WSO2 gateway</text>
-          <text class="s" x="535" y="182" text-anchor="middle">3 MCP proxies</text>
-          <rect class="inner" x="472" y="196" width="126" height="30" rx="3"/>
-          <text class="lbl" x="535" y="215" text-anchor="middle">mcp-auth · JWT</text>
-          <rect class="inner" x="472" y="236" width="126" height="30" rx="3"/>
-          <text class="lbl" x="535" y="255" text-anchor="middle">mcp-authz · scopes</text>
-          <line class="edge" x1="610" y1="210" x2="650" y2="210"/>
-          <line class="edge" x1="650" y1="75" x2="650" y2="345"/>
-          <line class="edge" x1="650" y1="75" x2="689" y2="75" marker-end="url(#a2)"/>
-          <line class="edge" x1="650" y1="210" x2="689" y2="210" marker-end="url(#a2)"/>
-          <line class="edge" x1="650" y1="345" x2="689" y2="345" marker-end="url(#a2)"/>
-          <!-- Servers, unchanged code; scope each proxy enforces -->
-          <rect class="box" x="690" y="40" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="66">hotel-info</text>
-          <text class="m" x="905" y="66" text-anchor="end">:8101</text>
-          <text class="m-new" x="705" y="90">hotel:read</text>
-          <rect class="box" x="690" y="175" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="201">reservations</text>
-          <text class="m" x="905" y="201" text-anchor="end">:8102</text>
-          <text class="m-new" x="705" y="225">bookings:read / :write</text>
-          <rect class="box" x="690" y="310" width="230" height="70" rx="5"/>
-          <text class="t" x="705" y="336">unity-loyalty</text>
-          <text class="m" x="905" y="336" text-anchor="end">:8103</text>
-          <text class="m-new" x="705" y="360">unity:read</text>
+          <line class="edge" x1="320" y1="228" x2="369" y2="228" marker-end="url(#a1)"/>
+          <text class="lbl" x="345" y="219" text-anchor="middle">Bearer</text>
+          <text class="s" x="345" y="245" text-anchor="middle">user token</text>
+          <rect class="box-check" x="370" y="180" width="150" height="96" rx="5"/>
+          <text class="t" x="445" y="204" text-anchor="middle">Agent Manager</text>
+          <text class="t" x="445" y="220" text-anchor="middle">gateway</text>
+          <text class="ok" x="445" y="244" text-anchor="middle">validates the</text>
+          <text class="ok" x="445" y="260" text-anchor="middle">user token</text>
+          <line class="edge-dim dash" x1="445" y1="179" x2="445" y2="77" marker-end="url(#a1d)"/>
+          <text class="s" x="453" y="134">JWKS</text>
+          <!-- Agent -->
+          <line class="edge" x1="520" y1="228" x2="569" y2="228" marker-end="url(#a1)"/>
+          <text class="lbl" x="545" y="219" text-anchor="middle">forward</text>
+          <rect class="box" x="570" y="170" width="170" height="116" rx="5"/>
+          <text class="t" x="655" y="194" text-anchor="middle">Concierge agent</text>
+          <text class="m" x="655" y="212" text-anchor="middle">pod · :8000</text>
+          <text class="s" x="655" y="234" text-anchor="middle">reads username → member</text>
+          <text class="s" x="655" y="250" text-anchor="middle">never validates the token</text>
+          <text class="s" x="655" y="266" text-anchor="middle">mints a token per tool call</text>
+          <polyline class="edge" points="655,169 655,48 601,48" marker-end="url(#a1)"/>
+          <text class="lbl" x="663" y="112">token exchange</text>
+          <text class="m" x="663" y="128">AMP_AGENTID_*</text>
+          <!-- Ollama -->
+          <line class="edge" x1="655" y1="287" x2="655" y2="359" marker-end="url(#a1)" marker-start="url(#a1)"/>
+          <text class="lbl" x="663" y="327">messages · tool_calls</text>
+          <rect class="box" x="570" y="360" width="170" height="56" rx="5"/>
+          <text class="t" x="655" y="383" text-anchor="middle">Ollama qwen3:1.7b</text>
+          <text class="s" x="655" y="401" text-anchor="middle">via gateway LLM provider</text>
+          <!-- MCP proxies -->
+          <line class="edge" x1="740" y1="228" x2="789" y2="228" marker-end="url(#a1)"/>
+          <text class="lbl" x="765" y="219" text-anchor="middle">Bearer</text>
+          <text class="s" x="765" y="245" text-anchor="middle">+ API-Key</text>
+          <rect class="box-new" x="790" y="170" width="150" height="116" rx="5"/>
+          <text class="t" x="865" y="194" text-anchor="middle">Gateway</text>
+          <text class="t" x="865" y="210" text-anchor="middle">MCP proxies</text>
+          <text class="lbl" x="865" y="234" text-anchor="middle">API key now</text>
+          <text class="later" x="865" y="254" text-anchor="middle">later: mcp-auth</text>
+          <text class="later" x="865" y="270" text-anchor="middle">+ per-tool mcp-authz</text>
+          <!-- MCP servers -->
+          <line class="edge" x1="865" y1="287" x2="865" y2="329" marker-end="url(#a1)"/>
+          <text class="s" x="873" y="313">tunnel</text>
+          <rect class="box" x="790" y="330" width="150" height="110" rx="5"/>
+          <text class="t" x="865" y="352" text-anchor="middle">MCP servers</text>
+          <text class="m" x="802" y="376">hotel-info</text>
+          <text class="m" x="928" y="376" text-anchor="end">:8101</text>
+          <text class="m" x="802" y="396">reservations</text>
+          <text class="m" x="928" y="396" text-anchor="end">:8102</text>
+          <text class="m" x="802" y="416">unity-loyalty</text>
+          <text class="m" x="928" y="416" text-anchor="end">:8103</text>
+          <text class="s" x="865" y="434" text-anchor="middle">no auth of their own</text>
         </svg>
       </div>
-      <figcaption>The orange parts are the only additions. The guest signs in with Thunder, and the agent sends that access token to the gateway instead of calling the servers directly. mcp-auth validates the JWT against Thunder's keys. mcp-authz checks the scope each tool needs. The server code stays the same. No step-up: a call without the scope gets a 403, and the agent reports it.</figcaption>
+      <div class="legend">
+        <span><i class="swatch check"></i>checks tokens today</span>
+        <span><i class="swatch new"></i>token checks added later</span>
+      </div>
+      <figcaption>The user token goes from the UI, through the gateway (which validates it), to the agent. The agent decodes it only to learn the username. For MCP calls it doesn't pass that token on. It swaps it at ThunderID for a token limited to one tool's scope, acting for the guest, and sends that with the proxy's API key.</figcaption>
     </figure>
   </section>
 
   <section>
-    <h2>A booking, end to end <span class="tag">now</span></h2>
+    <h2>A booking, end to end</h2>
     <figure>
       <div class="canvas">
-        <svg viewBox="0 0 940 570" role="img" aria-label="Sequence of a booking request: the agent loads tools from all three servers at start-up; then for a booking the model asks for check_availability, then create_booking on the reservations server, and the agent returns the confirmation number.">
+        <svg viewBox="0 0 960 680" role="img" aria-label="Sequence: the UI signs in with ThunderID, sends the chat through the gateway which validates the token, the agent maps the username to a member, asks the model, exchanges the user token for a bookings:read token to check availability, then for a bookings:write token to create the booking, and returns the confirmation.">
           <defs>
             <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
           </defs>
-          <!-- Lifeline heads -->
-          <rect class="box" x="10" y="14" width="120" height="34" rx="4"/><text class="t" x="70" y="36" text-anchor="middle">Guest</text>
-          <rect class="box" x="170" y="14" width="120" height="34" rx="4"/><text class="t" x="230" y="36" text-anchor="middle">Agent</text>
-          <rect class="box" x="330" y="14" width="120" height="34" rx="4"/><text class="t" x="390" y="36" text-anchor="middle">Ollama</text>
-          <rect class="box" x="500" y="14" width="120" height="34" rx="4"/><text class="t" x="560" y="36" text-anchor="middle">hotel-info</text>
-          <rect class="box" x="650" y="14" width="120" height="34" rx="4"/><text class="t" x="710" y="36" text-anchor="middle">reservations</text>
-          <rect class="box" x="800" y="14" width="120" height="34" rx="4"/><text class="t" x="860" y="36" text-anchor="middle">unity-loyalty</text>
-          <!-- Bands -->
-          <rect class="band" x="0" y="62" width="940" height="94"/>
-          <text class="bandlbl" x="12" y="80">ON START-UP</text>
-          <rect class="band" x="0" y="170" width="940" height="380"/>
-          <text class="bandlbl" x="12" y="188">GUEST BOOKS A ROOM</text>
-          <!-- Lifelines -->
-          <line class="life" x1="70" y1="48" x2="70" y2="556"/>
-          <line class="life" x1="230" y1="48" x2="230" y2="556"/>
-          <line class="life" x1="390" y1="48" x2="390" y2="556"/>
-          <line class="life" x1="560" y1="48" x2="560" y2="556"/>
-          <line class="life" x1="710" y1="48" x2="710" y2="556"/>
-          <line class="life" x1="860" y1="48" x2="860" y2="556"/>
-          <!-- Start-up -->
-          <line class="edge" x1="230" y1="100" x2="558" y2="100" marker-end="url(#a3)"/>
-          <text class="lbl" x="440" y="94" text-anchor="middle">initialize · tools/list</text>
-          <line class="edge" x1="230" y1="118" x2="708" y2="118" marker-end="url(#a3)"/>
-          <line class="edge" x1="230" y1="136" x2="858" y2="136" marker-end="url(#a3)"/>
-          <text class="s" x="236" y="150">9 tools in one catalogue</text>
-          <!-- Booking -->
-          <line class="edge" x1="70" y1="214" x2="228" y2="214" marker-end="url(#a3)"/>
-          <text class="lbl" x="150" y="208" text-anchor="middle">“Deluxe King, Dec 12–14”</text>
-          <line class="edge" x1="230" y1="244" x2="388" y2="244" marker-end="url(#a3)"/>
-          <text class="lbl" x="310" y="238" text-anchor="middle">messages + tool schemas</text>
-          <line class="edge dash" x1="390" y1="274" x2="232" y2="274" marker-end="url(#a3)"/>
-          <text class="m" x="310" y="268" text-anchor="middle">check_availability</text>
-          <line class="edge" x1="230" y1="304" x2="708" y2="304" marker-end="url(#a3)"/>
-          <text class="m" x="470" y="298" text-anchor="middle">tools/call check_availability(2026-12-12, 2026-12-14, 2)</text>
-          <line class="edge dash" x1="710" y1="334" x2="232" y2="334" marker-end="url(#a3)"/>
-          <text class="lbl" x="560" y="328" text-anchor="middle">DLXK available · 2 nights</text>
-          <line class="edge" x1="230" y1="364" x2="388" y2="364" marker-end="url(#a3)"/>
-          <text class="lbl" x="310" y="358" text-anchor="middle">tool result</text>
-          <line class="edge dash" x1="390" y1="394" x2="232" y2="394" marker-end="url(#a3)"/>
-          <text class="m" x="310" y="388" text-anchor="middle">create_booking</text>
-          <line class="edge" x1="230" y1="424" x2="708" y2="424" marker-end="url(#a3)"/>
-          <text class="m" x="470" y="418" text-anchor="middle">tools/call create_booking(member_id=HR-100245, DLXK, …)</text>
-          <line class="edge dash" x1="710" y1="454" x2="232" y2="454" marker-end="url(#a3)"/>
-          <text class="lbl" x="560" y="448" text-anchor="middle">confirmation HRM-7Q2K9D</text>
-          <line class="edge" x1="230" y1="484" x2="388" y2="484" marker-end="url(#a3)"/>
-          <text class="lbl" x="310" y="478" text-anchor="middle">tool result</text>
-          <line class="edge dash" x1="390" y1="510" x2="232" y2="510" marker-end="url(#a3)"/>
-          <text class="lbl" x="310" y="504" text-anchor="middle">final answer</text>
-          <line class="edge dash" x1="230" y1="536" x2="72" y2="536" marker-end="url(#a3)"/>
-          <text class="lbl" x="150" y="530" text-anchor="middle">Booked · HRM-7Q2K9D</text>
+          <rect class="box" x="10" y="14" width="120" height="34" rx="4"/><text class="t" x="70" y="36" text-anchor="middle">UI</text>
+          <rect class="box" x="165" y="14" width="120" height="34" rx="4"/><text class="t" x="225" y="36" text-anchor="middle">ThunderID</text>
+          <rect class="box-check" x="320" y="14" width="120" height="34" rx="4"/><text class="t" x="380" y="36" text-anchor="middle">AM gateway</text>
+          <rect class="box" x="475" y="14" width="120" height="34" rx="4"/><text class="t" x="535" y="36" text-anchor="middle">Agent</text>
+          <rect class="box" x="630" y="14" width="120" height="34" rx="4"/><text class="t" x="690" y="36" text-anchor="middle">Ollama</text>
+          <rect class="box" x="785" y="14" width="150" height="34" rx="4"/><text class="t" x="860" y="36" text-anchor="middle">reservations</text>
+          <rect class="band" x="0" y="60" width="960" height="76"/>
+          <text class="bandlbl" x="12" y="78">SIGN IN</text>
+          <rect class="band" x="0" y="148" width="960" height="514"/>
+          <text class="bandlbl" x="12" y="166">"BOOK A DELUXE KING, DEC 12–14"</text>
+          <line class="life" x1="70" y1="48" x2="70" y2="668"/>
+          <line class="life" x1="225" y1="48" x2="225" y2="668"/>
+          <line class="life" x1="380" y1="48" x2="380" y2="668"/>
+          <line class="life" x1="535" y1="48" x2="535" y2="668"/>
+          <line class="life" x1="690" y1="48" x2="690" y2="668"/>
+          <line class="life" x1="860" y1="48" x2="860" y2="668"/>
+          <!-- sign in -->
+          <line class="edge" x1="70" y1="98" x2="223" y2="98" marker-end="url(#a3)"/>
+          <text class="lbl" x="147" y="92" text-anchor="middle">code + PKCE</text>
+          <line class="edge dash" x1="225" y1="124" x2="72" y2="124" marker-end="url(#a3)"/>
+          <text class="lbl" x="147" y="118" text-anchor="middle">user token</text>
+          <!-- chat -->
+          <line class="edge" x1="70" y1="190" x2="378" y2="190" marker-end="url(#a3)"/>
+          <text class="mono" x="224" y="184" text-anchor="middle">POST /chat · Bearer user token</text>
+          <line class="edge" x1="380" y1="216" x2="533" y2="216" marker-end="url(#a3)"/>
+          <text class="ok" x="457" y="210" text-anchor="middle">valid ✓ forward</text>
+          <rect class="note" x="545" y="226" width="196" height="24" rx="3"/>
+          <text class="mono" x="553" y="242">username alex → HR-100245</text>
+          <line class="edge" x1="535" y1="270" x2="688" y2="270" marker-end="url(#a3)"/>
+          <text class="lbl" x="612" y="264" text-anchor="middle">messages + tools</text>
+          <line class="edge dash" x1="690" y1="296" x2="537" y2="296" marker-end="url(#a3)"/>
+          <text class="mono" x="612" y="290" text-anchor="middle">check_availability</text>
+          <line class="edge" x1="535" y1="322" x2="227" y2="322" marker-end="url(#a3)"/>
+          <text class="mono" x="458" y="316" text-anchor="middle">exchange · scope=bookings:read</text>
+          <line class="edge dash" x1="225" y1="348" x2="533" y2="348" marker-end="url(#a3)"/>
+          <text class="lbl" x="300" y="342" text-anchor="middle">1-scope token</text>
+          <line class="edge" x1="535" y1="374" x2="858" y2="374" marker-end="url(#a3)"/>
+          <text class="mono" x="697" y="368" text-anchor="middle">check_availability · Bearer + API-Key</text>
+          <line class="edge dash" x1="860" y1="400" x2="537" y2="400" marker-end="url(#a3)"/>
+          <text class="lbl" x="780" y="394" text-anchor="middle">DLXK available</text>
+          <line class="edge" x1="535" y1="426" x2="688" y2="426" marker-end="url(#a3)"/>
+          <text class="lbl" x="612" y="420" text-anchor="middle">tool result</text>
+          <line class="edge dash" x1="690" y1="452" x2="537" y2="452" marker-end="url(#a3)"/>
+          <text class="mono" x="612" y="446" text-anchor="middle">create_booking</text>
+          <line class="edge" x1="535" y1="478" x2="227" y2="478" marker-end="url(#a3)"/>
+          <text class="mono" x="458" y="472" text-anchor="middle">exchange · scope=bookings:write</text>
+          <line class="edge dash" x1="225" y1="504" x2="533" y2="504" marker-end="url(#a3)"/>
+          <text class="lbl" x="300" y="498" text-anchor="middle">1-scope token</text>
+          <line class="edge" x1="535" y1="530" x2="858" y2="530" marker-end="url(#a3)"/>
+          <text class="mono" x="697" y="524" text-anchor="middle">create_booking · Bearer + API-Key</text>
+          <line class="edge dash" x1="860" y1="556" x2="537" y2="556" marker-end="url(#a3)"/>
+          <text class="lbl" x="780" y="550" text-anchor="middle">confirmation HRM-…</text>
+          <line class="edge" x1="535" y1="582" x2="688" y2="582" marker-end="url(#a3)"/>
+          <text class="lbl" x="612" y="576" text-anchor="middle">tool result</text>
+          <line class="edge dash" x1="690" y1="608" x2="537" y2="608" marker-end="url(#a3)"/>
+          <text class="lbl" x="612" y="602" text-anchor="middle">final answer</text>
+          <line class="edge dash" x1="535" y1="640" x2="72" y2="640" marker-end="url(#a3)"/>
+          <text class="lbl" x="300" y="634" text-anchor="middle">reply + tool calls</text>
         </svg>
       </div>
-      <figcaption>Solid arrows are requests and dashed arrows are replies. The model only chooses tools; the agent makes every MCP call. <code>member_id</code> comes from the agent's system prompt (demo guest <code>HR-100245</code>), not from a token. Checking bookings and the Unity balance follow the same loop against <code>reservations</code> and <code>unity-loyalty</code>. Member IDs, rooms and confirmation numbers here are made-up demo data.</figcaption>
+      <figcaption>Solid arrows are requests, dashed arrows are replies. Each tool call gets its own exchanged token, limited to the one scope that tool needs, so the availability check can't write. ThunderID only ever narrows: the result is the requested scope intersected with what the guest signed in with. Tokens are cached per guest and scope until near expiry, so later calls skip the exchange. The model only chooses tools; the agent makes every call.</figcaption>
     </figure>
   </section>
 
   <section>
-    <h2>Tool catalogue</h2>
-    <p>The scope column is what each gateway proxy will require in phase 2. Tools that write data get their own scope so mcp-authz can allow reads and block writes.</p>
+    <h2>Who checks what</h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Server</th><th>Tool</th><th>Effect</th><th>What it does</th><th>Scope later</th></tr></thead>
+        <thead><tr><th>Component</th><th>Checks</th><th>Does not check</th></tr></thead>
         <tbody>
-          <tr class="first"><td rowspan="2">hotel-info</td><td class="tool">get_hotel_info</td><td><span class="rw">read</span></td><td>Address, check-in and check-out times, amenities</td><td class="scope">hotel:read</td></tr>
-          <tr><td class="tool">list_room_types</td><td><span class="rw">read</span></td><td>Room codes, max guests, nightly rate</td><td class="scope">hotel:read</td></tr>
-          <tr class="first"><td rowspan="5">reservations</td><td class="tool">check_availability</td><td><span class="rw">read</span></td><td>Free room types and total price for dates and guest count</td><td class="scope">bookings:read</td></tr>
-          <tr><td class="tool">list_bookings</td><td><span class="rw">read</span></td><td>A member's bookings, optionally by status</td><td class="scope">bookings:read</td></tr>
-          <tr><td class="tool">get_booking</td><td><span class="rw">read</span></td><td>One booking by confirmation number</td><td class="scope">bookings:read</td></tr>
-          <tr><td class="tool">create_booking</td><td><span class="rw write">write</span></td><td>Books a room and returns an <code>HRM-</code> confirmation number</td><td class="scope">bookings:write</td></tr>
-          <tr><td class="tool">cancel_booking</td><td><span class="rw write">write</span></td><td>Cancels a booking (optional, can be dropped)</td><td class="scope">bookings:write</td></tr>
-          <tr class="first"><td rowspan="2">unity-loyalty</td><td class="tool">get_unity_balance</td><td><span class="rw">read</span></td><td>Points, tier, points to next tier</td><td class="scope">unity:read</td></tr>
-          <tr><td class="tool">get_points_activity</td><td><span class="rw">read</span></td><td>Recent points earned and redeemed</td><td class="scope">unity:read</td></tr>
+          <tr><td class="who">Concierge UI</td><td>The ID token at sign-in: signature (JWKS), issuer, audience, expiry, nonce</td><td>Nothing after that; it forwards the access token</td></tr>
+          <tr><td class="who">AM gateway</td><td class="yes">The user token on every request to the agent</td><td>Which member the guest is</td></tr>
+          <tr><td class="who">Concierge agent</td><td>Nothing. Reads <code>username</code> → Unity member; gets a per-tool token</td><td>The user token's signature or expiry, by design</td></tr>
+          <tr><td class="who">ThunderID</td><td>The exchange: agent's own credentials, then requested scope ∩ guest's scopes</td><td>—</td></tr>
+          <tr><td class="who">MCP proxies</td><td>API key now; <span class="later-text">later the exchanged token (mcp-auth) and its per-tool scope (mcp-authz)</span></td><td>—</td></tr>
+          <tr><td class="who">MCP servers</td><td>Inputs only; bookings must belong to the given member</td><td>Any token. They trust <code>member_id</code></td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <section>
-    <h2>Open decisions</h2>
+    <h2>Tool catalogue</h2>
+    <p>The scope column is what the agent requests for each call, and what mcp-authz will require. Write tools get their own scope.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Server</th><th>Tool</th><th>Effect</th><th>Scope</th></tr></thead>
+        <tbody>
+          <tr class="first"><td rowspan="2">hotel-info</td><td class="tool">get_hotel_info</td><td><span class="rw">read</span></td><td class="scope">hotel:read</td></tr>
+          <tr><td class="tool">list_room_types</td><td><span class="rw">read</span></td><td class="scope">hotel:read</td></tr>
+          <tr class="first"><td rowspan="5">reservations</td><td class="tool">check_availability</td><td><span class="rw">read</span></td><td class="scope">bookings:read</td></tr>
+          <tr><td class="tool">list_bookings</td><td><span class="rw">read</span></td><td class="scope">bookings:read</td></tr>
+          <tr><td class="tool">get_booking</td><td><span class="rw">read</span></td><td class="scope">bookings:read</td></tr>
+          <tr><td class="tool">create_booking</td><td><span class="rw write">write</span></td><td class="scope">bookings:write</td></tr>
+          <tr><td class="tool">cancel_booking</td><td><span class="rw write">write</span></td><td class="scope">bookings:write</td></tr>
+          <tr class="first"><td rowspan="2">unity-loyalty</td><td class="tool">get_unity_balance</td><td><span class="rw">read</span></td><td class="scope">unity:read</td></tr>
+          <tr><td class="tool">get_points_activity</td><td><span class="rw">read</span></td><td class="scope">unity:read</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Not yet confirmed in Agent Manager</h2>
     <ol class="open">
-      <li><strong>Whose token reaches the gateway.</strong> Either the guest's own Thunder token (scopes follow the guest) or the agent's own client token (scopes follow the agent). This changes what <code>sub</code> the gateway sees.</li>
-      <li><strong>Binding <code>member_id</code> to the caller.</strong> The servers trust the <code>member_id</code> argument. Even in phase 2, a token with <code>bookings:read</code> can read any member's bookings unless the gateway maps a claim into the request or the server reads <code>X-Forwarded-Authorization</code>.</li>
-      <li><strong>Gateway to server reachability.</strong> The servers run on the Mac and the gateway runs in k3d. Earlier notes say the cluster reaches the Mac at <code>192.168.5.2</code>, not <code>host.k3d.internal</code>. I'll re-check this before phase 2.</li>
+      <li><strong>The gateway passes the user token to the agent.</strong> The agent reads <code>Authorization</code> or <code>X-Forwarded-Authorization</code>. If the gateway strips both, the agent answers 401.</li>
+      <li><strong>The agent identity may do token exchange.</strong> Agent Manager creates it (<code>AMP_AGENTID_*</code>). It needs the token-exchange grant and access to <code>urn:hardrock:concierge-api</code>.</li>
+      <li><strong>The audience the gateway expects.</strong> The UI's token is issued for <code>urn:hardrock:concierge-api</code>. The agent's protection in Agent Manager has to accept that.</li>
+      <li><strong>Binding <code>member_id</code> at the MCP layer.</strong> The MCP servers still trust the argument. Once mcp-auth forwards the exchanged token, a server or policy can check its <code>sub</code> against the member.</li>
     </ol>
-    <p class="note">Not part of this design: step-up authentication. A call that's missing a scope fails, and nothing escalates it.</p>
   </section>
 </div>
