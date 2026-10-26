@@ -202,5 +202,5 @@ def test_ui_flags_and_optional_agent_api_key(monkeypatch: pytest.MonkeyPatch) ->
     args = parse_args([])
     assert (args.agent_url, args.port) == ("http://localhost:8000", 9100)
     assert agent_headers({}) == {}
-    assert agent_headers({"AGENT_API_KEY": " k "}) == {"X-API-Key": "k"}
+    assert agent_headers({"AGENT_API_KEY": " k "}) == {"API-Key": "k"}
     assert agent_headers({"AGENT_API_KEY": "k", "AGENT_API_KEY_HEADER": "API-Key"}) == {"API-Key": "k"}

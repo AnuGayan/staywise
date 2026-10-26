@@ -16,7 +16,7 @@ from concierge.ui_app import create_app
 
 DEFAULT_PORT = 9100
 DEFAULT_AGENT_URL = "http://localhost:8000"
-DEFAULT_AGENT_API_KEY_HEADER = "X-API-Key"
+DEFAULT_AGENT_API_KEY_HEADER = "API-Key"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

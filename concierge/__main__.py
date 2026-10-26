@@ -58,7 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--llm-api-key-header",
         default=os.environ.get("LLM_API_KEY_HEADER", DEFAULT_API_KEY_HEADER),
         help="header that carries LLM_API_KEY: 'Authorization' sends 'Bearer <key>', any other "
-        "header (e.g. X-API-Key for Agent Manager) sends the raw key",
+        "header (e.g. API-Key for Agent Manager LLM proxies) sends the raw key",
     )
     parser.add_argument(
         "--member-id",

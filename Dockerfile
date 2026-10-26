@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir ".[amp]"
 
 ENV MCP_FROM_ENV=true \
     MCP_ENV_PREFIXES=HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY \
-    LLM_API_KEY_HEADER=X-API-Key \
+    LLM_API_KEY_HEADER=API-Key \
     PORT=8000 \
     OLLAMA_MODEL=qwen3:1.7b \
     CONCIERGE_MEMBERS=/app/config/members.json

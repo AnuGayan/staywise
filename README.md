@@ -97,7 +97,7 @@ hardrock-concierge -p "What's my Unity points balance?" --member-id HR-100377 -v
 
 Open http://localhost:9100. Every sign-in asks for credentials (`prompt=login`), so **Sign out** lets you switch guests. Locally there's no gateway, so nothing validates the token the agent receives. Run it that way only on your own machine.
 
-**UI** (`hardrock-concierge-ui`). It redirects to ThunderID with PKCE (S256), `nonce`, `state` and `resource=urn:hardrock:concierge-api`. On the callback it redeems the code with its client secret and verifies the ID token (signature against Thunder's JWKS, issuer, audience, expiry, nonce). It then keeps the access token server-side. The browser gets only an opaque HttpOnly, SameSite=Lax session cookie. Each chat message goes to `$AGENT_URL/chat` with `Authorization: Bearer <user token>` (plus `AGENT_API_KEY` in `AGENT_API_KEY_HEADER`, default `X-API-Key`, if set). If the agent or gateway answers 401, the UI ends the session and asks the guest to sign in again.
+**UI** (`hardrock-concierge-ui`). It redirects to ThunderID with PKCE (S256), `nonce`, `state` and `resource=urn:hardrock:concierge-api`. On the callback it redeems the code with its client secret and verifies the ID token (signature against Thunder's JWKS, issuer, audience, expiry, nonce). It then keeps the access token server-side. The browser gets only an opaque HttpOnly, SameSite=Lax session cookie. Each chat message goes to `$AGENT_URL/chat` with `Authorization: Bearer <user token>` (plus `AGENT_API_KEY` in `AGENT_API_KEY_HEADER`, default `API-Key`, if set). If the agent or gateway answers 401, the UI ends the session and asks the guest to sign in again.
 
 | UI route | |
 |---|---|
@@ -147,7 +147,7 @@ docker build -t hardrock-concierge:dev .
 The image runs only the agent API, on port 8000 (`PORT`), the port Agent Manager gives the agent's service. It needs no sign-in settings, because the gateway validates user tokens. Agent Manager injects what the agent uses:
 
 - **MCP servers:** `<PREFIX>_URL` / `<PREFIX>_API_KEY`. The image sets `MCP_FROM_ENV=true`.
-- **Model:** `LLM_BASE_URL`, `LLM_API_KEY`. The image sets `LLM_API_KEY_HEADER=X-API-Key`.
+- **Model:** `LLM_BASE_URL`, `LLM_API_KEY`. The image sets `LLM_API_KEY_HEADER=API-Key`, the header Agent Manager's LLM proxies check. A provider you configure yourself may use another, e.g. `X-API-Key`.
 - **Agent identity for token exchange:** `AMP_AGENTID_*`. `AMP_AGENTID_TOKEN_ENDPOINT` is Thunder's in-cluster service on port 8090, which the agent sandbox's network policy allows.
 - **Tracing:** `AMP_OTEL_ENDPOINT`, `AMP_AGENT_API_KEY`.
 
