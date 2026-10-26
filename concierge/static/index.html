@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hard Rock Miami Concierge</title>
+<style>
+  :root {
+    --bg: #f4f5f8; --surface: #ffffff; --fg: #1a1f2b; --muted: #5a6376; --line: #c6ccd8;
+    --guest: #1f2a44; --guest-fg: #ffffff; --accent: #c2410c; --tool: #eef1f6;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #11141a; --surface: #1a1f28; --fg: #e6e9ef; --muted: #9aa3b5; --line: #3a4252;
+      --guest: #d9dfeb; --guest-fg: #11141a; --accent: #f08a4b; --tool: #222936;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); display: flex; flex-direction: column; }
+  header {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between;
+    padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  h1 { margin: 0; font-size: 18px; }
+  .who { color: var(--muted); font-size: 13px; }
+  .actions { display: flex; gap: 8px; }
+  .who strong { color: var(--fg); font-family: ui-monospace, Menlo, monospace; font-weight: 500; }
+  main { flex: 1; overflow-y: auto; padding: 16px; }
+  .log { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  .msg { padding: 10px 14px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.guest { align-self: flex-end; background: var(--guest); color: var(--guest-fg); }
+  .msg.agent { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); }
+  .msg.error { align-self: flex-start; border: 1px solid var(--accent); color: var(--accent); background: var(--surface); }
+  details.tool {
+    align-self: flex-start; max-width: 85%; background: var(--tool); border-radius: 6px;
+    padding: 6px 10px; font: 12.5px/1.45 ui-monospace, Menlo, monospace; color: var(--muted);
+  }
+  details.tool summary { cursor: pointer; }
+  details.tool pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0 8px; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  footer { border-top: 1px solid var(--line); background: var(--surface); padding: 12px 16px; }
+  form { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; }
+  input[type="text"] {
+    flex: 1; min-width: 0; padding: 10px 12px; font: inherit; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  button {
+    font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--fg); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+  button:disabled { opacity: 0.55; cursor: progress; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hard Rock Hotel Miami · Concierge</h1>
+  <span class="who" id="who">Checking sign-in…</span>
+  <div class="actions">
+    <button type="button" id="new-chat">New chat</button>
+    <button type="button" id="sign-out">Sign out</button>
+  </div>
+</header>
+<main>
+  <div class="log" id="log" aria-live="polite">
+    <div class="empty" id="empty">
+      <p>Ask about your bookings, book a room, or check your Unity points.</p>
+      <div class="suggestions">
+        <button type="button" class="suggestion">What are my upcoming bookings?</button>
+        <button type="button" class="suggestion">Is a Deluxe King free for 2 guests from 2026-12-12 to 2026-12-14?</button>
+        <button type="button" class="suggestion">What's my Unity points balance?</button>
+      </div>
+    </div>
+  </div>
+</main>
+<footer>
+  <form id="form">
+    <input type="text" id="message" name="message" autocomplete="off" placeholder="Message the concierge" aria-label="Message the concierge" required>
+    <button type="submit" class="primary" id="send">Send</button>
+  </form>
+</footer>
+<script>
+  "use strict";
+  const log = document.getElementById("log");
+  const form = document.getElementById("form");
+  const input = document.getElementById("message");
+  const send = document.getElementById("send");
+
+  function toSignIn() {
+    location.assign("login");
+  }
+
+  function add(kind, text) {
+    document.getElementById("empty")?.remove();
+    const el = document.createElement("div");
+    el.className = `msg ${kind}`;
+    el.textContent = text;
+    log.append(el);
+    el.scrollIntoView({ block: "end" });
+  }
+
+  function addToolCall(call) {
+    const box = document.createElement("details");
+    box.className = "tool";
+    const summary = document.createElement("summary");
+    summary.textContent = `↳ ${call.name}(${JSON.stringify(call.arguments)})`;
+    const result = document.createElement("pre");
+    result.textContent = call.result;
+    box.append(summary, result);
+    log.append(box);
+  }
+
+  async function ask(message) {
+    add("guest", message);
+    send.disabled = true;
+    try {
+      const response = await fetch("chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      if (response.status === 401) {
+        toSignIn();
+        return;
+      }
+      const body = await response.json();
+      if (!response.ok) {
+        add("error", body.error || `Request failed (${response.status})`);
+        return;
+      }
+      body.tool_calls.forEach(addToolCall);
+      add("agent", body.reply);
+    } catch (error) {
+      add("error", `Cannot reach the concierge: ${error.message}`);
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message || send.disabled) return;
+    input.value = "";
+    ask(message);
+  });
+
+  document.querySelectorAll(".suggestion").forEach((button) => {
+    button.addEventListener("click", () => ask(button.textContent));
+  });
+
+  document.getElementById("new-chat").addEventListener("click", async () => {
+    try {
+      const response = await fetch("chat", { method: "DELETE" });
+      if (response.status === 401) {
+        toSignIn();
+        return;
+      }
+      location.reload();
+    } catch (error) {
+      add("error", `Cannot start a new chat: ${error.message}`);
+    }
+  });
+
+  document.getElementById("sign-out").addEventListener("click", async () => {
+    try {
+      await fetch("logout", { method: "POST" });
+    } catch (error) {
+      console.warn("sign-out request failed; signing in again anyway", error);
+    }
+    toSignIn();
+  });
+
+  fetch("me")
+    .then((response) => {
+      if (response.status === 401) {
+        toSignIn();
+        return null;
+      }
+      return response.json();
+    })
+    .then((guest) => {
+      if (!guest) return;
+      const who = document.getElementById("who");
+      who.textContent = "";
+      const id = document.createElement("strong");
+      id.textContent = guest.member_id;
+      who.append(`Signed in as ${guest.name} · Unity member `, id);
+    })
+    .catch((error) => {
+      document.getElementById("who").textContent = `Concierge unavailable: ${error.message}`;
+    });
+</script>
+</body>
+</html>

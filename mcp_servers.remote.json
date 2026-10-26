@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "hotel-info": { "url": "http://${MCP_HOST}:8101/mcp" },
+    "reservations": { "url": "http://${MCP_HOST}:8102/mcp" },
+    "unity-loyalty": { "url": "http://${MCP_HOST}:8103/mcp" }
+  }
+}

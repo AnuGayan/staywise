@@ -1,0 +1,237 @@
+# Hard Rock concierge resources for the ThunderID 1.0.0 bundled with WSO2 Agent Manager.
+#
+# Applied by thunder-setup.sh through POST /import (upsert by id), so re-running is safe.
+# Every double-brace template variable below is resolved server-side from the `variables` object
+# the setup script sends with the import request (comments are templated too, so never put a
+# template expression in a comment). No secret values live in this file.
+#
+# IDs are fixed so that re-imports update in place and teardown can address them.
+# Contract names (other code depends on them):
+#   resource server  urn:hardrock:concierge-api  (delimiter ":")
+#   app              hardrock-concierge-web
+#   role             hardrock-guest
+#   users            alex, priya, daniel  (mapped to Unity member ids in config/members.json)
+
+# --- Resource server: the scopes the gateway MCP proxies will check later -----------------
+resource_type: resource_server
+id: 019a5cb2-0000-7000-8000-000000000010
+name: Hard Rock Concierge API
+description: Hard Rock Hotel Miami concierge MCP tools (hotel info, reservations, Unity loyalty)
+identifier: urn:hardrock:concierge-api
+ouHandle: default
+delimiter: ":"
+resources:
+  - name: Hotel
+    handle: hotel
+    actions:
+      - name: Read
+        handle: read
+        description: Read hotel information and room types
+  - name: Bookings
+    handle: bookings
+    actions:
+      - name: Read
+        handle: read
+        description: Check availability and read the guest's bookings
+      - name: Write
+        handle: write
+        description: Create or cancel the guest's bookings
+  - name: Unity
+    handle: unity
+    actions:
+      - name: Read
+        handle: read
+        description: Read the guest's Unity points balance and activity
+
+---
+# --- Password login flow -------------------------------------------------------------------
+resource_type: flow
+id: 019a5cb2-0000-7000-8000-000000000020
+name: Hard Rock Password Login
+handle: hardrock-password-login
+flowType: AUTHENTICATION
+nodes:
+- id: start
+  type: START
+  onSuccess: prompt_credentials
+- id: prompt_credentials
+  type: PROMPT
+  meta:
+    components:
+    - align: center
+      type: TEXT
+      id: text_title
+      label: Sign in to the Hard Rock Miami concierge
+      variant: HEADING_1
+    - type: BLOCK
+      id: block_credentials
+      components:
+      - id: input_username
+        ref: username
+        type: TEXT_INPUT
+        label: Username
+        required: true
+        placeholder: Enter your username
+      - id: input_password
+        ref: password
+        type: PASSWORD_INPUT
+        label: Password
+        required: true
+        placeholder: Enter your password
+      - type: ACTION
+        id: action_login
+        label: Sign in
+        variant: PRIMARY
+        eventType: SUBMIT
+  prompts:
+  - inputs:
+    - ref: input_username
+      identifier: username
+      type: TEXT_INPUT
+      required: true
+    - ref: input_password
+      identifier: password
+      type: PASSWORD_INPUT
+      required: true
+    action:
+      ref: action_login
+      nextNode: credentials_auth
+- id: credentials_auth
+  type: TASK_EXECUTION
+  executor:
+    name: CredentialsAuthExecutor
+  onSuccess: authorization_check
+  onIncomplete: prompt_credentials
+- id: authorization_check
+  type: TASK_EXECUTION
+  executor:
+    name: AuthorizationExecutor
+  onSuccess: auth_assert
+- id: auth_assert
+  type: TASK_EXECUTION
+  executor:
+    name: AuthAssertExecutor
+  onSuccess: end
+- id: end
+  type: END
+
+---
+# --- Demo guests (made up; usernames map to Unity member ids in config/members.json) ------
+resource_type: user
+id: 019a5cb2-0000-7000-8000-000000000031
+type: Person
+ouHandle: default
+attributes:
+  username: alex
+  email: alex.morgan@example.com
+  name: Alex Morgan
+  given_name: Alex
+  family_name: Morgan
+credentials:
+  password: "{{.DEMO_PASSWORD}}"
+
+---
+resource_type: user
+id: 019a5cb2-0000-7000-8000-000000000032
+type: Person
+ouHandle: default
+attributes:
+  username: priya
+  email: priya.natarajan@example.com
+  name: Priya Natarajan
+  given_name: Priya
+  family_name: Natarajan
+credentials:
+  password: "{{.DEMO_PASSWORD}}"
+
+---
+resource_type: user
+id: 019a5cb2-0000-7000-8000-000000000033
+type: Person
+ouHandle: default
+attributes:
+  username: daniel
+  email: daniel.okafor@example.com
+  name: Daniel Okafor
+  given_name: Daniel
+  family_name: Okafor
+credentials:
+  password: "{{.DEMO_PASSWORD}}"
+
+---
+# --- Web app: the concierge's browser login (confidential client, code + PKCE) ------------
+resource_type: application
+id: 019a5cb2-0000-7000-8000-000000000040
+name: hardrock-concierge-web
+description: Hard Rock Miami concierge web chat (server-side confidential client)
+type: fullstack
+ouHandle: default
+authFlowHandle: hardrock-password-login
+allowedUserTypes:
+  - Person
+inboundAuthConfig:
+  - type: oauth2
+    config:
+      clientId: "{{.WEB_CLIENT_ID}}"
+      clientSecret: "{{.WEB_CLIENT_SECRET}}"
+      redirectUris:
+#WEB_REDIRECT_URIS#
+      grantTypes:
+        - authorization_code
+        - refresh_token
+      responseTypes:
+        - code
+      tokenEndpointAuthMethod: client_secret_basic
+      publicClient: false
+      pkceRequired: true
+      scopes:
+        - openid
+        - profile
+        - hotel:read
+        - bookings:read
+        - bookings:write
+        - unity:read
+      token:
+        accessToken:
+          userConfig:
+            validityPeriod: 3600
+            attributes:
+              - username
+              - name
+        idToken:
+          validityPeriod: 3600
+          userAttributes:
+            - username
+            - name
+            - given_name
+            - family_name
+        refreshToken:
+          validityPeriod: 86400
+      scopeClaims:
+        profile:
+          - name
+          - given_name
+          - family_name
+          - username
+
+---
+# --- Role: what a signed-in guest may do ---------------------------------------------------
+resource_type: role
+id: 019a5cb2-0000-7000-8000-000000000060
+name: hardrock-guest
+description: Hard Rock Miami concierge guest permissions
+ouHandle: default
+permissions:
+  - resourceServerId: 019a5cb2-0000-7000-8000-000000000010
+    permissions:
+      - hotel:read
+      - bookings:read
+      - bookings:write
+      - unity:read
+assignments:
+  - id: 019a5cb2-0000-7000-8000-000000000031
+    type: user
+  - id: 019a5cb2-0000-7000-8000-000000000032
+    type: user
+  - id: 019a5cb2-0000-7000-8000-000000000033
+    type: user

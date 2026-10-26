@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hardrock-concierge"
+version = "0.1.0"
+description = "Hard Rock Hotel Miami concierge agent with three unprotected MCP servers (hotel info, reservations, Unity loyalty)."
+requires-python = ">=3.11"
+dependencies = [
+    # 1.23.0 is the last SDK release whose native MCP protocol is 2025-06-18,
+    # the spec version every WSO2 AI gateway MCP proxy accepts. 1.23.1+ speaks 2025-11-25.
+    "mcp==1.23.0",
+    "httpx>=0.27",
+    "ollama>=0.6,<1",
+    "opentelemetry-api>=1.20",
+    "pyjwt[crypto]>=2.8",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+# A named entry point, so Traceloop (which names the service after argv[0]) reports "hardrock-concierge".
+hardrock-concierge = "concierge.__main__:main"
+
+[project.optional-dependencies]
+dev = ["opentelemetry-sdk>=1.20", "pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+# Agent Manager tracing for Docker-built agents: run under `amp-instrument` (zero-code, Traceloop-based).
+amp = ["amp-instrumentation==0.4.1"]
+
+[tool.setuptools]
+packages = ["concierge", "servers"]
+
+[tool.setuptools.package-data]
+concierge = ["static/*.html"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Emitted by pydantic-settings inside the mcp SDK; not actionable here.
+filterwarnings = ["ignore:Field 'lifespan' has an incomplete definition"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC"]

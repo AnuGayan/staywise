@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "hotel-info": { "url": "${WSO2_GATEWAY_URL}/hotel-info/mcp" },
+    "reservations": { "url": "${WSO2_GATEWAY_URL}/reservations/mcp" },
+    "unity-loyalty": { "url": "${WSO2_GATEWAY_URL}/unity/mcp" }
+  }
+}
