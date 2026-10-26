@@ -1,4 +1,4 @@
-"""Run the concierge as a CLI chat (`python -m concierge [-p PROMPT]`) or a web chat + HTTP API (`--serve`)."""
+"""Run the concierge as a CLI chat (`python -m concierge [-p PROMPT]`) or as the agent HTTP API (`--serve`)."""
 
 from __future__ import annotations
 
@@ -27,14 +27,15 @@ from concierge.agent import (
     ToolCallObserver,
     build_system_prompt,
 )
-from concierge.auth import AuthConfigError, OidcClient, OidcSettings, SignedInGuest, WebAuth, load_members
 from concierge.config import DEFAULT_ENV_PREFIXES, ConfigError, ServerConfig, load_config, load_env_servers
 from concierge.http_api import Runtime, create_app
 from concierge.hub import McpConnectionError, McpHub, connect
+from concierge.identity import Guest, MemberMapError, load_members
 from concierge.openai_compat import DEFAULT_API_KEY_HEADER, OpenAIChatClient
+from concierge.tokens import AgentIdentity, GuestTools, TokenBroker, TokenConfigError
 
 DEFAULT_MODEL = "qwen3:1.7b"
-DEFAULT_PORT = 9100
+DEFAULT_PORT = 8000
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "mcp_servers.json"
 DEFAULT_MEMBERS = Path(__file__).resolve().parent.parent / "config" / "members.json"
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit"}
@@ -62,7 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--member-id",
         default=os.environ.get("CONCIERGE_MEMBER_ID", DEFAULT_MEMBER_ID),
-        help="Unity member id for the terminal chat (the web chat takes it from the signed-in guest)",
+        help="Unity member id for the terminal chat (the API takes it from the forwarded user token)",
     )
     parser.add_argument(
         "--members",
@@ -89,7 +90,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--serve",
         action="store_true",
-        help="serve the web chat (ThunderID sign-in required) instead of a terminal chat",
+        help="serve the agent HTTP API (for the UI, behind the Agent Manager gateway) instead of a terminal chat",
     )
     parser.add_argument("--host", default="127.0.0.1", help="HTTP API bind address (with --serve)")
     parser.add_argument(
@@ -163,28 +164,35 @@ async def open_llm(args: argparse.Namespace) -> AsyncIterator[ChatClient]:
 
 
 async def serve(
-    args: argparse.Namespace, configs: list[ServerConfig], oidc: OidcSettings, members: dict[str, str]
+    args: argparse.Namespace, configs: list[ServerConfig], members: dict[str, str], identity: AgentIdentity | None
 ) -> None:
-    """Serve the web chat behind ThunderID sign-in, sharing one MCP hub and LLM client across guests."""
+    """Serve the agent's HTTP API, sharing one MCP hub, LLM client and token broker across guests."""
     async with connect(configs) as hub, open_llm(args) as llm, httpx.AsyncClient(timeout=10) as http:
+        broker = TokenBroker(identity, http) if identity else None
 
-        def new_agent(guest: SignedInGuest, on_tool_call: ToolCallObserver) -> Agent:
-            return Agent(
+        def new_conversation(guest: Guest, on_tool_call: ToolCallObserver) -> tuple[Agent, GuestTools]:
+            tools = GuestTools(hub, broker)
+            agent = Agent(
                 llm,
-                hub,
+                tools,
                 args.model,
                 system_prompt=build_system_prompt(guest.member_id, date.today()),
                 max_steps=args.max_steps,
                 on_tool_call=on_tool_call,
             )
+            return agent, tools
 
-        auth = WebAuth(OidcClient(oidc, http), members)
-        runtime = Runtime(model=args.model, tool_names=hub.tool_names, new_agent=new_agent)
-        app = create_app(runtime, auth, secure_cookies=oidc.secure_cookies, base_path=oidc.base_path)
-        config = uvicorn.Config(app, host=args.host, port=args.port, log_level="info" if args.verbose else "warning")
+        runtime = Runtime(model=args.model, tool_names=hub.tool_names, new_conversation=new_conversation)
+        config = uvicorn.Config(
+            create_app(runtime, members),
+            host=args.host,
+            port=args.port,
+            log_level="info" if args.verbose else "warning",
+        )
+        exchange = f"token exchange as {identity.client_id}" if identity else "no agent identity: MCP API keys only"
         print(
-            f"Concierge chat on {oidc.public_url} (sign-in: {oidc.issuer}, client {oidc.client_id}; "
-            f"model {args.model}; tools: {', '.join(hub.tool_names)})",
+            f"Concierge agent API on http://{args.host}:{args.port} (model {args.model}; {exchange}; "
+            f"tools: {', '.join(hub.tool_names)})",
             flush=True,
         )
         await uvicorn.Server(config).serve()
@@ -205,11 +213,11 @@ async def run(args: argparse.Namespace) -> int:
     try:
         if args.serve:
             try:
-                oidc, members = OidcSettings.from_env(os.environ), load_members(args.members)
-            except AuthConfigError as exc:
+                members, identity = load_members(args.members), AgentIdentity.from_env(os.environ)
+            except (MemberMapError, TokenConfigError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
-            await serve(args, configs, oidc, members)
+            await serve(args, configs, members, identity)
             return 0
         async with connect(configs) as hub, open_llm(args) as llm:
             agent = Agent(

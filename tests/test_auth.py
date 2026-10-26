@@ -2,7 +2,6 @@ import base64
 import hashlib
 import json
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -18,7 +17,6 @@ from concierge.auth import (
     OidcSettings,
     TokenGrant,
     WebAuth,
-    load_members,
 )
 
 ISSUER = "http://idp.test"
@@ -29,7 +27,6 @@ SETTINGS = OidcSettings(
     public_url="http://localhost:9100",
     resource="urn:hardrock:concierge-api",
 )
-MEMBERS = {"alex": "HR-100245"}
 
 
 class FakeThunder:
@@ -75,7 +72,9 @@ class FakeThunder:
             self.token_requests.append(request)
             if self.token_status != 200:
                 return httpx.Response(self.token_status, json={"error": "invalid_grant"})
-            return httpx.Response(200, json={"id_token": self.next_id_token, "expires_in": 3600})
+            return httpx.Response(
+                200, json={"id_token": self.next_id_token, "access_token": "user-at", "expires_in": 3600}
+            )
         return httpx.Response(404)
 
 
@@ -102,25 +101,6 @@ def test_settings_from_env_defaults_and_overrides() -> None:
     assert SETTINGS.secure_cookies is False
 
 
-def test_load_members_lowercases_usernames(tmp_path: Path) -> None:
-    path = tmp_path / "m.json"
-    path.write_text('{"Alex": "HR-100245"}', encoding="utf-8")
-    assert load_members(path) == {"alex": "HR-100245"}
-
-
-@pytest.mark.parametrize("content", ["[1]", '{"alex": 5}', "{nope"])
-def test_load_members_rejects_bad_files(tmp_path: Path, content: str) -> None:
-    path = tmp_path / "m.json"
-    path.write_text(content, encoding="utf-8")
-    with pytest.raises(AuthConfigError):
-        load_members(path)
-
-
-def test_shipped_member_map_covers_the_demo_guests() -> None:
-    members = load_members(Path(__file__).resolve().parent.parent / "config" / "members.json")
-    assert members == {"alex": "HR-100245", "priya": "HR-100377", "daniel": "HR-100512"}
-
-
 async def test_authorization_url_carries_pkce_resource_and_prompt(thunder: FakeThunder) -> None:
     url = await client_for(thunder).authorization_url("st", "no", "challenge")
     parts = urlsplit(url)
@@ -143,7 +123,7 @@ async def test_authorization_url_carries_pkce_resource_and_prompt(thunder: FakeT
 async def test_exchange_code_uses_basic_auth_and_verifier(thunder: FakeThunder) -> None:
     thunder.next_id_token = "tok"
     grant = await client_for(thunder).exchange_code("the-code", "the-verifier")
-    assert grant == TokenGrant(id_token="tok", expires_in=3600)
+    assert grant == TokenGrant(id_token="tok", access_token="user-at", expires_in=3600)
     request = thunder.token_requests[0]
     assert request.headers["authorization"] == "Basic " + base64.b64encode(b"hardrock-concierge-web:s3cret").decode()
     form = {key: values[0] for key, values in parse_qs(request.content.decode()).items()}
@@ -212,29 +192,39 @@ class FakeIdp:
         digest = hashlib.sha256(code_verifier.encode()).digest()
         assert base64.urlsafe_b64encode(digest).rstrip(b"=").decode() == self.challenge
         assert code == "good-code"
-        return TokenGrant(id_token="id", expires_in=900)
+        return TokenGrant(id_token="id", access_token="user-at", expires_in=900)
 
     async def verify_id_token(self, id_token: str, nonce: str) -> dict[str, Any]:
         assert nonce == self.nonce
         return self.claims
 
 
-async def test_web_auth_round_trip_binds_the_member_id() -> None:
+async def test_web_auth_round_trip_keeps_the_access_token() -> None:
     idp = FakeIdp({"sub": "user-1", "username": "Alex", "name": "Alex Morgan"})
-    auth = WebAuth(idp, MEMBERS)
+    auth = WebAuth(idp)
     await auth.begin_login()
     session_id, ttl = await auth.complete_login(idp.state, "good-code")
-    guest = auth.guest(session_id)
+    user = auth.user(session_id)
     assert ttl == 900
-    assert guest is not None
-    assert (guest.username, guest.name, guest.member_id) == ("Alex", "Alex Morgan", "HR-100245")
+    assert user is not None
+    assert (user.subject, user.username, user.name, user.access_token) == ("user-1", "Alex", "Alex Morgan", "user-at")
     auth.logout(session_id)
-    assert auth.guest(session_id) is None
+    assert auth.user(session_id) is None
+
+
+async def test_web_auth_falls_back_to_sub_without_a_username() -> None:
+    idp = FakeIdp({"sub": "user-9"})
+    auth = WebAuth(idp)
+    await auth.begin_login()
+    session_id, _ = await auth.complete_login(idp.state, "good-code")
+    user = auth.user(session_id)
+    assert user is not None
+    assert (user.username, user.name) == ("user-9", "user-9")
 
 
 async def test_web_auth_state_is_single_use() -> None:
     idp = FakeIdp({"sub": "u", "username": "alex"})
-    auth = WebAuth(idp, MEMBERS)
+    auth = WebAuth(idp)
     await auth.begin_login()
     await auth.complete_login(idp.state, "good-code")
     with pytest.raises(AuthError, match="expired or was already used"):
@@ -244,7 +234,7 @@ async def test_web_auth_state_is_single_use() -> None:
 async def test_web_auth_rejects_stale_logins_and_expires_sessions() -> None:
     now = [1000.0]
     idp = FakeIdp({"sub": "u", "username": "alex"})
-    auth = WebAuth(idp, MEMBERS, clock=lambda: now[0])
+    auth = WebAuth(idp, clock=lambda: now[0])
     await auth.begin_login()
     now[0] += 601
     with pytest.raises(AuthError, match="expired"):
@@ -253,30 +243,15 @@ async def test_web_auth_rejects_stale_logins_and_expires_sessions() -> None:
     await auth.begin_login()
     session_id, _ = await auth.complete_login(idp.state, "good-code")
     now[0] += 899
-    assert auth.guest(session_id) is not None
+    assert auth.user(session_id) is not None
     now[0] += 1
-    assert auth.guest(session_id) is None
-
-
-@pytest.mark.parametrize(
-    ("claims", "message"),
-    [
-        ({"sub": "u", "username": "mallory"}, "not linked to a Unity"),
-        ({"sub": "u"}, "no username claim"),
-    ],
-)
-async def test_web_auth_requires_a_linked_username(claims: dict[str, Any], message: str) -> None:
-    idp = FakeIdp(claims)
-    auth = WebAuth(idp, MEMBERS)
-    await auth.begin_login()
-    with pytest.raises(AuthError, match=message):
-        await auth.complete_login(idp.state, "good-code")
+    assert auth.user(session_id) is None
 
 
 def test_unknown_or_missing_session_is_anonymous() -> None:
-    auth = WebAuth(FakeIdp({}), MEMBERS)
-    assert auth.guest(None) is None
-    assert auth.guest("nope") is None
+    auth = WebAuth(FakeIdp({}))
+    assert auth.user(None) is None
+    assert auth.user("nope") is None
     auth.logout("nope")
 
 

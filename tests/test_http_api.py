@@ -1,20 +1,28 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-import httpx
+import jwt
 import pytest
 from ollama import ChatResponse, Message, ResponseError
 from starlette.testclient import TestClient
 
 from concierge.agent import Agent, AgentStepLimitError, ToolCallObserver
-from concierge.auth import SignedInGuest, TokenGrant, WebAuth
-from concierge.http_api import SESSION_COOKIE, Runtime, create_app
+from concierge.http_api import Runtime, create_app
+from concierge.identity import Guest
 
-USERS = {"alex": "HR-100245", "priya": "HR-100377"}
+MEMBERS = {"alex": "HR-100245", "priya": "HR-100377"}
+
+
+def token_for(username: str, sub: str | None = None) -> str:
+    return jwt.encode({"sub": sub or f"sub-{username}", "username": username}, "k" * 32, "HS256")
+
+
+def auth(username: str = "alex", sub: str | None = None) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token_for(username, sub)}"}
 
 
 class EchoLlm:
-    """Calls `get_unity_balance` when asked about points; otherwise echoes the system prompt's member id."""
+    """Calls `get_unity_balance` when asked about points; otherwise echoes the system prompt (the member id)."""
 
     def __init__(self, error: Exception | None = None) -> None:
         self._error = error
@@ -43,149 +51,90 @@ class EchoLlm:
         return ChatResponse(message=Message(role="assistant", content=f"{system['content']} turn {turns}"))
 
 
-class FakeTools:
+class TokenEchoTools:
+    """Answers tool calls with the user token the conversation holds at that moment."""
+
+    def __init__(self) -> None:
+        self.user_token: str | None = None
+
     def ollama_tools(self) -> list[dict[str, Any]]:
         return []
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
-        return "18450 points"
+        return f"token={self.user_token}"
 
 
-class FakeIdp:
-    """Signs in whichever username the test queued for the next code."""
+def make_client(llm: EchoLlm | None = None) -> TestClient:
+    def new_conversation(guest: Guest, observer: ToolCallObserver) -> tuple[Agent, TokenEchoTools]:
+        tools = TokenEchoTools()
+        return Agent(llm or EchoLlm(), tools, "m", system_prompt=guest.member_id, on_tool_call=observer), tools
 
-    def __init__(self) -> None:
-        self.username = "alex"
-        self.last_state = ""
-
-    async def authorization_url(self, state: str, nonce: str, code_challenge: str) -> str:
-        self.last_state = state
-        return f"http://idp.test/oauth2/authorize?state={state}"
-
-    async def exchange_code(self, code: str, code_verifier: str) -> TokenGrant:
-        return TokenGrant(id_token=code, expires_in=3600)
-
-    async def verify_id_token(self, id_token: str, nonce: str) -> dict[str, Any]:
-        return {"sub": f"sub-{self.username}", "username": self.username, "name": self.username.title()}
+    runtime = Runtime(model="m", tool_names=["get_unity_balance"], new_conversation=new_conversation)
+    return TestClient(create_app(runtime, MEMBERS))
 
 
-def make_client(llm: EchoLlm | None = None) -> tuple[TestClient, FakeIdp]:
-    def new_agent(guest: SignedInGuest, observer: ToolCallObserver) -> Agent:
-        return Agent(llm or EchoLlm(), FakeTools(), "m", system_prompt=guest.member_id, on_tool_call=observer)
-
-    idp = FakeIdp()
-    app = create_app(Runtime(model="m", tool_names=["get_unity_balance"], new_agent=new_agent), WebAuth(idp, USERS))
-    return TestClient(app, base_url="http://localhost:9100", follow_redirects=False), idp
-
-
-def sign_in(client: TestClient, idp: FakeIdp, username: str = "alex") -> None:
-    idp.username = username
-    assert client.get("/login").status_code == 303
-    response = client.get("/auth/callback", params={"state": idp.last_state, "code": "c"})
-    assert response.status_code == 303
-    assert response.headers["location"] == "/"
-
-
-def test_health_is_public() -> None:
-    client, _ = make_client()
-    assert client.get("/health").json() == {"status": "ok", "model": "m", "tools": ["get_unity_balance"], "sessions": 0}
-
-
-@pytest.mark.parametrize(("method", "path"), [("GET", "/me"), ("POST", "/chat"), ("DELETE", "/chat")])
-def test_guest_endpoints_require_sign_in(method: str, path: str) -> None:
-    client, _ = make_client()
-    response = client.request(method, path, json={"message": "hi"} if method == "POST" else None)
-    assert response.status_code == 401
-
-
-def test_chat_page_redirects_to_login_until_signed_in() -> None:
-    client, idp = make_client()
-    assert client.get("/").headers["location"] == "/login"
-    login = client.get("/login")
-    assert login.headers["location"].startswith("http://idp.test/oauth2/authorize?state=")
-    sign_in(client, idp)
-    page = client.get("/")
-    assert page.status_code == 200
-    assert "<title>Hard Rock Miami Concierge</title>" in page.text
-
-
-def test_session_cookie_is_http_only_and_lax() -> None:
-    client, idp = make_client()
-    client.get("/login")
-    response = client.get("/auth/callback", params={"state": idp.last_state, "code": "c"})
-    cookie = response.headers["set-cookie"].lower()
-    assert cookie.startswith(f"{SESSION_COOKIE}=")
-    assert "httponly" in cookie and "samesite=lax" in cookie and "max-age=3600" in cookie
-
-
-def test_me_reports_the_signed_in_guest() -> None:
-    client, idp = make_client()
-    sign_in(client, idp, "priya")
-    assert client.get("/me").json() == {"username": "priya", "name": "Priya", "member_id": "HR-100377"}
-
-
-def test_conversation_is_bound_to_the_guests_member_id() -> None:
-    client, idp = make_client()
-    sign_in(client, idp, "priya")
-    assert client.post("/chat", json={"message": "hi"}).json() == {"reply": "HR-100377 turn 1", "tool_calls": []}
-    assert client.post("/chat", json={"message": "again"}).json()["reply"] == "HR-100377 turn 2"
-
-
-def test_chat_returns_tool_calls() -> None:
-    client, idp = make_client()
-    sign_in(client, idp)
-    body = client.post("/chat", json={"message": "my points?"}).json()
-    assert body == {
-        "reply": "result: 18450 points",
-        "tool_calls": [
-            {"name": "get_unity_balance", "arguments": {"member_id": "HR-100245"}, "result": "18450 points"}
-        ],
+def test_health_is_open() -> None:
+    assert make_client().get("/health").json() == {
+        "status": "ok",
+        "model": "m",
+        "tools": ["get_unity_balance"],
+        "conversations": 0,
     }
 
 
-def test_each_browser_gets_its_own_conversation() -> None:
-    first, idp_one = make_client()
-    sign_in(first, idp_one, "alex")
-    # A second browser against the same app: share the app, not the cookie jar.
-    second = TestClient(first.app, base_url="http://localhost:9100", follow_redirects=False)
-    sign_in(second, idp_one, "priya")
-    assert first.post("/chat", json={"message": "a"}).json()["reply"] == "HR-100245 turn 1"
-    assert second.post("/chat", json={"message": "b"}).json()["reply"] == "HR-100377 turn 1"
+def test_serves_no_chat_page() -> None:
+    assert make_client().get("/").status_code == 404
 
 
-def test_delete_chat_starts_over_and_logout_ends_the_session() -> None:
-    client, idp = make_client()
-    sign_in(client, idp)
-    client.post("/chat", json={"message": "one"})
-    assert client.delete("/chat").status_code == 204
-    assert client.post("/chat", json={"message": "two"}).json()["reply"] == "HR-100245 turn 1"
-    assert client.post("/logout").status_code == 204
-    assert client.get("/me").status_code == 401
+def test_chat_requires_a_forwarded_token() -> None:
+    response = make_client().post("/chat", json={"message": "hi"})
+    assert response.status_code == 401
+    assert "Bearer" in response.json()["error"]
 
 
 @pytest.mark.parametrize(
-    ("params", "message"),
+    ("headers", "status"),
     [
-        ({"error": "access_denied", "error_description": "user <b>cancelled</b>"}, "user &lt;b&gt;cancelled&lt;/b&gt;"),
-        ({"state": "x"}, "missing its code or state"),
-        ({"state": "forged", "code": "c"}, "expired or was already used"),
+        ({"Authorization": "Bearer not-a-jwt"}, 401),
+        ({"Authorization": f"Bearer {token_for('mallory')}"}, 403),
     ],
 )
-def test_callback_failures_show_an_escaped_message(params: dict[str, str], message: str) -> None:
-    client, _ = make_client()
-    response = client.get("/auth/callback", params=params)
-    assert response.status_code == 400
-    assert message in response.text
-    assert SESSION_COOKIE not in response.headers.get("set-cookie", "")
+def test_chat_rejects_tokens_that_name_no_member(headers: dict[str, str], status: int) -> None:
+    assert make_client().post("/chat", json={"message": "hi"}, headers=headers).status_code == status
 
 
-def test_unlinked_account_cannot_sign_in() -> None:
-    client, idp = make_client()
-    idp.username = "mallory"
-    client.get("/login")
-    response = client.get("/auth/callback", params={"state": idp.last_state, "code": "c"})
-    assert response.status_code == 400
-    assert "not linked to a Unity" in response.text
+def test_conversation_is_bound_to_the_tokens_member() -> None:
+    client = make_client()
+    first = client.post("/chat", json={"message": "hi"}, headers=auth("priya")).json()
+    assert first == {"reply": "HR-100377 turn 1", "tool_calls": [], "member_id": "HR-100377"}
+    assert client.post("/chat", json={"message": "again"}, headers=auth("priya")).json()["reply"] == "HR-100377 turn 2"
+
+
+def test_gateway_forwarded_header_also_works() -> None:
+    headers = {"X-Forwarded-Authorization": f"Bearer {token_for('alex')}"}
+    assert make_client().post("/chat", json={"message": "hi"}, headers=headers).json()["member_id"] == "HR-100245"
+
+
+def test_tool_calls_see_the_latest_user_token() -> None:
+    client = make_client()
+    fresh = auth("alex")
+    body = client.post("/chat", json={"message": "my points?"}, headers=fresh).json()
+    token = fresh["Authorization"].removeprefix("Bearer ")
+    assert body["tool_calls"] == [
+        {"name": "get_unity_balance", "arguments": {"member_id": "HR-100245"}, "result": f"token={token}"}
+    ]
+
+
+def test_conversation_ids_are_scoped_per_guest() -> None:
+    client = make_client()
+    client.post("/chat", json={"message": "a", "conversation_id": "c1"}, headers=auth("alex"))
+    # Same conversation id, different guest: a fresh conversation, not alex's history.
+    other = client.post("/chat", json={"message": "b", "conversation_id": "c1"}, headers=auth("priya"))
+    assert other.json()["reply"] == "HR-100377 turn 1"
+    again = client.post("/chat", json={"message": "c", "conversation_id": "c1"}, headers=auth("alex"))
+    assert again.json()["reply"] == "HR-100245 turn 2"
+    new = client.post("/chat", json={"message": "d", "conversation_id": "c2"}, headers=auth("alex"))
+    assert new.json()["reply"] == "HR-100245 turn 1"
 
 
 @pytest.mark.parametrize(
@@ -194,13 +143,13 @@ def test_unlinked_account_cannot_sign_in() -> None:
         ({"content": "not json", "headers": {"content-type": "application/json"}}, 400, "must be JSON"),
         ({"json": [1]}, 400, "JSON object"),
         ({"json": {"message": ""}}, 400, "non-empty string"),
+        ({"json": {"message": "hi", "conversation_id": 5}}, 400, "'conversation_id' must be a string"),
         ({"data": {"message": "hi"}}, 415, "application/json"),
     ],
 )
 def test_chat_rejects_bad_requests(kwargs: dict[str, Any], status: int, error: str) -> None:
-    client, idp = make_client()
-    sign_in(client, idp)
-    response = client.post("/chat", **kwargs)
+    headers = {**auth(), **kwargs.pop("headers", {})}
+    response = make_client().post("/chat", headers=headers, **kwargs)
     assert response.status_code == status
     assert error in response.json()["error"]
 
@@ -214,36 +163,4 @@ def test_chat_rejects_bad_requests(kwargs: dict[str, Any], status: int, error: s
     ],
 )
 def test_chat_maps_agent_failures(exc: Exception, status: int) -> None:
-    client, idp = make_client(EchoLlm(error=exc))
-    sign_in(client, idp)
-    assert client.post("/chat", json={"message": "hi"}).status_code == status
-
-
-class DownIdp(FakeIdp):
-    async def authorization_url(self, state: str, nonce: str, code_challenge: str) -> str:
-        raise httpx.ConnectError("connection refused")
-
-
-def test_login_reports_an_unreachable_thunder() -> None:
-    def new_agent(guest: SignedInGuest, observer: ToolCallObserver) -> Agent:
-        return Agent(EchoLlm(), FakeTools(), "m", on_tool_call=observer)
-
-    app = create_app(Runtime(model="m", tool_names=[], new_agent=new_agent), WebAuth(DownIdp(), USERS))
-    response = TestClient(app, follow_redirects=False).get("/login")
-    assert response.status_code == 502
-    assert "cannot reach ThunderID" in response.text
-
-
-def test_redirects_stay_under_the_gateway_path_prefix() -> None:
-    def new_agent(guest: SignedInGuest, observer: ToolCallObserver) -> Agent:
-        return Agent(EchoLlm(), FakeTools(), "m", on_tool_call=observer)
-
-    idp = FakeIdp()
-    app = create_app(Runtime(model="m", tool_names=[], new_agent=new_agent), WebAuth(idp, USERS), base_path="/melody")
-    client = TestClient(app, follow_redirects=False)
-    assert client.get("/").headers["location"] == "/melody/login"
-    client.get("/login")
-    signed_in = client.get("/auth/callback", params={"state": idp.last_state, "code": "c"})
-    assert signed_in.headers["location"] == "/melody/"
-    failed = client.get("/auth/callback", params={"state": "forged", "code": "c"})
-    assert "href='/melody/login'" in failed.text
+    assert make_client(EchoLlm(error=exc)).post("/chat", json={"message": "hi"}, headers=auth()).status_code == status

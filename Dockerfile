@@ -15,14 +15,14 @@ ENV MCP_FROM_ENV=true \
     MCP_ENV_PREFIXES=HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY \
     LLM_API_KEY_HEADER=X-API-Key \
     PORT=8000 \
-    THUNDER_INTERNAL_URL=http://amp-thunder-default-default-service.amp-thunder-default-default.svc.cluster.local:8090 \
     OLLAMA_MODEL=qwen3:1.7b \
     CONCIERGE_MEMBERS=/app/config/members.json
 # Tracing: Agent Manager injects AMP_OTEL_ENDPOINT and AMP_AGENT_API_KEY; amp-instrument exports
 # OTLP traces there (Ollama and MCP calls via Traceloop). AMP_TRACE_CONTENT=false keeps prompts and
 # tool results out of the spans.
-# Sign-in: set THUNDER_ISSUER, CONCIERGE_CLIENT_SECRET and CONCIERGE_PUBLIC_URL from .env.thunder in the
-# deployment, and register CONCIERGE_PUBLIC_URL with AGENT_PUBLIC_URLS when running thunder-setup.sh.
+# Auth: the agent serves only its API. The Agent Manager gateway validates the user token the UI sends;
+# the agent reads it (username -> member id) and exchanges it at ThunderID for per-tool MCP tokens using
+# the identity Agent Manager injects (AMP_AGENTID_CLIENT_ID / _CLIENT_SECRET / _TOKEN_ENDPOINT).
 
 USER 10001
 EXPOSE 8000

@@ -193,8 +193,8 @@
       const who = document.getElementById("who");
       who.textContent = "";
       const id = document.createElement("strong");
-      id.textContent = guest.member_id;
-      who.append(`Signed in as ${guest.name} · Unity member `, id);
+      id.textContent = guest.username;
+      who.append(`Signed in as ${guest.name} · `, id);
     })
     .catch((error) => {
       document.getElementById("who").textContent = `Concierge unavailable: ${error.message}`;

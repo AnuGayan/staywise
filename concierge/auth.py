@@ -1,8 +1,7 @@
-"""Browser sign-in against the Agent Manager ThunderID: OIDC authorization code + PKCE, run server-side.
+"""The UI's sign-in against the Agent Manager ThunderID: OIDC authorization code + PKCE, run server-side.
 
 The browser only ever holds an opaque, HttpOnly session cookie. Codes, tokens and the client secret
-stay on the server. The signed-in guest's Unity member id comes from their verified ID token
-(username -> member id), never from the browser.
+stay in the UI process, which forwards the guest's access token to the agent.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlsplit
 
@@ -101,36 +99,22 @@ class OidcSettings:
         )
 
 
-def load_members(path: Path) -> dict[str, str]:
-    """Read the Thunder username -> Unity member id map.
-
-    Raises:
-        AuthConfigError: if the file is unreadable or not a flat string-to-string object.
-    """
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise AuthConfigError(f"cannot read member map {path}: {exc}") from exc
-    if not isinstance(raw, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in raw.items()):
-        raise AuthConfigError(f"{path} must be a JSON object mapping usernames to Unity member ids")
-    return {username.lower(): member_id for username, member_id in raw.items()}
-
-
 @dataclass(frozen=True)
-class SignedInGuest:
-    """Who is using the chat, as established by their ID token."""
+class SignedInUser:
+    """Who is using the chat (from their verified ID token) and the access token to act for them."""
 
     subject: str
     username: str
     name: str
-    member_id: str
+    access_token: str
 
 
 @dataclass(frozen=True)
 class TokenGrant:
-    """The parts of a token response the concierge uses."""
+    """The parts of a token response the UI uses."""
 
     id_token: str
+    access_token: str
     expires_in: int
 
 
@@ -196,10 +180,16 @@ class OidcClient:
         body = _json_object(response)
         if response.status_code != httpx.codes.OK:
             raise AuthError(f"ThunderID rejected the sign-in ({body.get('error', response.status_code)})")
-        id_token = body.get("id_token")
+        id_token, access_token = body.get("id_token"), body.get("access_token")
         if not isinstance(id_token, str):
             raise AuthError("ThunderID returned no ID token; is 'openid' an allowed scope?")
-        return TokenGrant(id_token=id_token, expires_in=int(body.get("expires_in", DEFAULT_SESSION_TTL_SECONDS)))
+        if not isinstance(access_token, str):
+            raise AuthError("ThunderID returned no access token")
+        return TokenGrant(
+            id_token=id_token,
+            access_token=access_token,
+            expires_in=int(body.get("expires_in", DEFAULT_SESSION_TTL_SECONDS)),
+        )
 
     async def verify_id_token(self, id_token: str, nonce: str) -> dict[str, Any]:
         """Verify signature (JWKS, refetched once on an unknown key), issuer, audience, expiry and nonce.
@@ -267,22 +257,15 @@ class _PendingLogin:
 
 @dataclass(frozen=True)
 class _Session:
-    guest: SignedInGuest
+    user: SignedInUser
     expires_at: float
 
 
 class WebAuth:
-    """Sign-in state for the web chat: pending logins keyed by `state`, and sessions keyed by cookie value."""
+    """Sign-in state for the chat UI: pending logins keyed by `state`, and sessions keyed by cookie value."""
 
-    def __init__(
-        self,
-        idp: IdentityProvider,
-        members: Mapping[str, str],
-        *,
-        clock: Callable[[], float] = time.time,
-    ) -> None:
+    def __init__(self, idp: IdentityProvider, *, clock: Callable[[], float] = time.time) -> None:
         self._idp = idp
-        self._members = members
         self._clock = clock
         self._pending: OrderedDict[str, _PendingLogin] = OrderedDict()
         self._sessions: OrderedDict[str, _Session] = OrderedDict()
@@ -299,23 +282,23 @@ class WebAuth:
         """Finish a sign-in from the callback. Returns the new session id and its lifetime in seconds.
 
         Raises:
-            AuthError: if the state is unknown or stale, the token is invalid, or the user has no membership.
+            AuthError: if the state is unknown or stale, or the ID token is invalid.
         """
         pending = self._pending.pop(state, None)
         if pending is None or self._clock() - pending.started_at > LOGIN_TTL_SECONDS:
             raise AuthError("this sign-in link has expired or was already used; please sign in again")
         grant = await self._idp.exchange_code(code, pending.code_verifier)
         claims = await self._idp.verify_id_token(grant.id_token, pending.nonce)
-        guest = self._guest_from(claims)
+        user = _user_from(claims, grant.access_token)
         ttl = max(60, min(grant.expires_in, DEFAULT_SESSION_TTL_SECONDS))
         session_id = secrets.token_urlsafe(32)
-        self._sessions[session_id] = _Session(guest, self._clock() + ttl)
+        self._sessions[session_id] = _Session(user, self._clock() + ttl)
         while len(self._sessions) > MAX_SESSIONS:
             self._sessions.popitem(last=False)
         return session_id, ttl
 
-    def guest(self, session_id: str | None) -> SignedInGuest | None:
-        """The signed-in guest for a session cookie, or None if absent or expired."""
+    def user(self, session_id: str | None) -> SignedInUser | None:
+        """The signed-in user for a session cookie, or None if absent or expired."""
         if not session_id:
             return None
         session = self._sessions.get(session_id)
@@ -324,26 +307,22 @@ class WebAuth:
         if self._clock() >= session.expires_at:
             del self._sessions[session_id]
             return None
-        return session.guest
+        return session.user
 
     def logout(self, session_id: str | None) -> None:
         """Forget a session (a no-op for unknown ids)."""
         if session_id:
             self._sessions.pop(session_id, None)
 
-    def _guest_from(self, claims: Mapping[str, Any]) -> SignedInGuest:
-        username = str(claims.get("username") or claims.get("preferred_username") or "")
-        if not username:
-            raise AuthError("the ID token has no username claim; add 'username' to the app's ID token attributes")
-        member_id = self._members.get(username.lower())
-        if member_id is None:
-            raise AuthError(f"the account '{username}' is not linked to a Unity by Hard Rock membership")
-        return SignedInGuest(
-            subject=str(claims["sub"]),
-            username=username,
-            name=str(claims.get("name") or username),
-            member_id=member_id,
-        )
+
+def _user_from(claims: Mapping[str, Any], access_token: str) -> SignedInUser:
+    username = str(claims.get("username") or claims.get("preferred_username") or claims["sub"])
+    return SignedInUser(
+        subject=str(claims["sub"]),
+        username=username,
+        name=str(claims.get("name") or username),
+        access_token=access_token,
+    )
 
 
 def _code_challenge(verifier: str) -> str:

@@ -79,18 +79,20 @@ async def test_open_llm_picks_client_from_flags() -> None:
         assert isinstance(llm, OpenAIChatClient)
 
 
-async def test_serve_exits_2_without_sign_in_settings(
+async def test_serve_exits_2_on_partial_agent_identity(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.delenv("CONCIERGE_CLIENT_SECRET", raising=False)
+    monkeypatch.setenv("AMP_AGENTID_CLIENT_ID", "id")
+    monkeypatch.delenv("AMP_AGENTID_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("AMP_AGENTID_TOKEN_ENDPOINT", raising=False)
     assert await run(parse_args(["--serve"])) == 2
-    assert "CONCIERGE_CLIENT_SECRET is not set" in capsys.readouterr().err
+    assert "agent identity is incomplete" in capsys.readouterr().err
 
 
 async def test_serve_exits_2_on_unreadable_member_map(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("CONCIERGE_CLIENT_SECRET", "x")
+    monkeypatch.delenv("AMP_AGENTID_CLIENT_ID", raising=False)
     assert await run(parse_args(["--serve", "--members", str(tmp_path / "none.json")])) == 2
     assert "cannot read member map" in capsys.readouterr().err
 

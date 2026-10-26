@@ -9,7 +9,7 @@ from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from concierge.config import ServerConfig
-from concierge.hub import McpConnectionError, McpHub, _hint, connect, format_tool_result
+from concierge.hub import BearerAuth, McpConnectionError, McpHub, _hint, connect, format_tool_result
 from servers import hotel_info_server, reservations_server, unity_server
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -158,3 +158,37 @@ async def test_connect_over_stdio_negotiates_2025_06_18() -> None:
     async with connect(configs) as hub:
         assert hub.protocol_versions == {"hotel-info": "2025-06-18"}
         assert '"code": "DLXK"' in await hub.call_tool("list_room_types", {})
+
+
+def test_bearer_auth_sets_the_header_only_while_a_token_is_set() -> None:
+    auth = BearerAuth()
+    request = httpx.Request("POST", "http://gw/mcp", headers={"Authorization": ""})
+    assert next(auth.auth_flow(request)).headers["Authorization"] == ""
+    auth.token = "t1"
+    assert next(auth.auth_flow(request)).headers["Authorization"] == "Bearer t1"
+
+
+async def test_bearer_is_set_for_the_call_and_cleared_after(tmp_path: Path) -> None:
+    seen: list[str | None] = []
+
+    class SpyAuth(BearerAuth):
+        pass
+
+    spy = SpyAuth()
+    unity = unity_server.create_server(unity_server.LoyaltyStore(tmp_path / "u.db"))
+    async with create_connected_server_and_client_session(unity._mcp_server) as session:
+        hub = McpHub()
+        await hub.add_server("unity-loyalty", session, spy)
+        original = session.call_tool
+
+        async def call_and_peek(name: str, arguments: dict[str, object] | None = None) -> types.CallToolResult:
+            seen.append(spy.token)
+            return await original(name, arguments)
+
+        session.call_tool = call_and_peek  # type: ignore[method-assign]
+        result = await hub.call_tool("get_unity_balance", {"member_id": "HR-100245"}, bearer="exchanged")
+        assert '"points_balance": 18450' in result
+        assert seen == ["exchanged"]
+        assert spy.token is None
+        await hub.call_tool("get_unity_balance", {"member_id": "HR-100245"})
+        assert seen == ["exchanged", None]
