@@ -107,10 +107,8 @@ def test_env_servers_follow_agent_manager_variables() -> None:
     }
     configs = load_env_servers(DEFAULT_ENV_PREFIXES, env)
     assert configs == [
-        ServerConfig(
-            name="hotel-info", url="https://gw/hotel-info/mcp", headers={"API-Key": "k1", "Authorization": ""}
-        ),
-        ServerConfig(name="unity-loyalty", url="https://gw/unity/mcp", headers={"API-Key": "k3", "Authorization": ""}),
+        ServerConfig(name="hotel-info", url="https://gw/hotel-info/mcp", headers={"API-Key": "k1"}),
+        ServerConfig(name="unity-loyalty", url="https://gw/unity/mcp", headers={"API-Key": "k3"}),
     ]
 
 
@@ -125,7 +123,6 @@ def test_env_servers_split_comma_separated_urls() -> None:
 @pytest.mark.parametrize(
     ("env", "message"),
     [
-        ({"RESERVATIONS_URL": "https://a/mcp"}, "RESERVATIONS_API_KEY is not set, but RESERVATIONS_URL is"),
         ({"RESERVATIONS_API_KEY": "k"}, "RESERVATIONS_URL is not set, but RESERVATIONS_API_KEY is"),
         ({}, "no MCP servers configured in the environment; expected some of: RESERVATIONS_URL"),
     ],
@@ -138,3 +135,8 @@ def test_env_servers_report_incomplete_configuration(env: dict[str, str], messag
 def test_env_servers_reject_bad_prefixes() -> None:
     with pytest.raises(ConfigError, match="upper-case"):
         load_env_servers(["unity-loyalty"], {})
+
+
+def test_env_servers_need_no_api_key_for_jwt_proxies() -> None:
+    configs = load_env_servers(["RESERVATIONS"], {"RESERVATIONS_URL": "https://gw/reservations/mcp"})
+    assert configs == [ServerConfig(name="reservations", url="https://gw/reservations/mcp", headers={})]

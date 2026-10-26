@@ -140,8 +140,11 @@ class McpConnectionError(RuntimeError):
 
 
 @asynccontextmanager
-async def connect(configs: Sequence[ServerConfig]) -> AsyncIterator[McpHub]:
+async def connect(configs: Sequence[ServerConfig], startup_token: str | None = None) -> AsyncIterator[McpHub]:
     """Open a session to every configured server and yield a hub over all of them.
+
+    `startup_token` is sent as `Authorization: Bearer ...` on the handshake (initialize, tools/list),
+    for gateways that require a JWT before any guest is involved; tool calls bring their own tokens.
 
     Raises:
         McpConnectionError: if a server cannot be reached, spawned, or initialized.
@@ -153,9 +156,13 @@ async def connect(configs: Sequence[ServerConfig]) -> AsyncIterator[McpHub]:
             for config in configs:
                 connecting = config.name
                 session, auth = await _open_session(stack, config)
+                if auth is not None:
+                    auth.token = startup_token
                 init = await session.initialize()
                 hub.protocol_versions[config.name] = str(init.protocolVersion)
                 tool_names = await hub.add_server(config.name, session, auth)
+                if auth is not None:
+                    auth.token = None
                 logger.info("connected to %s (MCP %s): %s", config.name, init.protocolVersion, ", ".join(tool_names))
             connecting = None
             yield hub
@@ -170,7 +177,10 @@ async def connect(configs: Sequence[ServerConfig]) -> AsyncIterator[McpHub]:
 def _hint(cause: BaseException) -> str:
     status = cause.response.status_code if isinstance(cause, httpx.HTTPStatusError) else None
     if status in (401, 403):
-        return "The server or gateway rejected the credentials; check the headers in your MCP config."
+        return (
+            "The server or gateway rejected the credentials: for JWT-protected proxies check the agent identity "
+            "(AMP_AGENTID_*) and the token's issuer/audience; for API-key proxies, <PREFIX>_API_KEY."
+        )
     if status == 404:
         return "Nothing is served at that URL; check the path (servers listen on /mcp)."
     return "Is the server running? See README.md, 'Run the MCP servers'."

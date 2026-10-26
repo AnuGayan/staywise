@@ -150,16 +150,32 @@ async def test_guest_tools_report_refusals_to_the_model_without_calling() -> Non
     assert hub.calls == []
 
 
-@pytest.mark.parametrize(
-    ("has_broker", "user_token", "tool"),
-    [(False, "user-at", "get_unity_balance"), (True, None, "get_unity_balance"), (True, "user-at", "unmapped_tool")],
-)
-async def test_guest_tools_fall_back_to_plain_calls(has_broker: bool, user_token: str | None, tool: str) -> None:
+@pytest.mark.parametrize(("user_token", "tool"), [(None, "get_unity_balance"), ("user-at", "unmapped_tool")])
+async def test_guest_tools_fall_back_to_the_agents_own_token(user_token: str | None, tool: str) -> None:
     hub = RecordingHub()
-    tools = GuestTools(hub, broker_for(FakeThunderTokens()) if has_broker else None)
+    thunder = FakeThunderTokens()
+    tools = GuestTools(hub, broker_for(thunder))
     tools.user_token = user_token
     await tools.call_tool(tool, {})
-    assert hub.calls == [(tool, None)]
+    assert hub.calls == [(tool, "agent-at")]
+    assert [form["grant_type"] for form in thunder.forms] == ["client_credentials"]
+
+
+async def test_guest_tools_without_a_broker_send_no_token() -> None:
+    hub = RecordingHub()
+    tools = GuestTools(hub, None)
+    tools.user_token = "user-at"
+    await tools.call_tool("get_unity_balance", {})
+    assert hub.calls == [("get_unity_balance", None)]
+
+
+async def test_agent_token_refusal_reaches_the_model() -> None:
+    thunder = FakeThunderTokens()
+    thunder.fail_with = (401, {"error": "invalid_client"})
+    tools = GuestTools(RecordingHub(), broker_for(thunder))
+    assert await tools.call_tool("unmapped_tool", {}) == (
+        "Error: not authorized to use unmapped_tool: ThunderID refused the agent token: invalid_client"
+    )
 
 
 def test_every_server_tool_has_a_scope() -> None:

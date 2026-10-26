@@ -1,5 +1,6 @@
 # Concierge agent image for WSO2 Agent Manager. MCP servers come from the variables Agent Manager sets for
-# each attached MCP server (<PREFIX>_URL, <PREFIX>_API_KEY; prefixes in MCP_ENV_PREFIXES). The model is
+# each attached MCP server (<PREFIX>_URL, optional <PREFIX>_API_KEY; prefixes in MCP_ENV_PREFIXES); every MCP
+# request carries a JWT minted from the agent identity (AMP_AGENTID_*). The model is
 # reached through the gateway's LLM provider (LLM_BASE_URL, LLM_API_KEY, LLM_API_KEY_HEADER).
 FROM python:3.12-slim
 

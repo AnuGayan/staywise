@@ -122,3 +122,13 @@ def test_port_comes_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PORT", "8000")
     assert parse_args([]).port == 8000
     assert parse_args(["--port", "9200"]).port == 9200
+
+
+async def test_serve_exits_1_when_the_agent_token_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AMP_AGENTID_CLIENT_ID", "id")
+    monkeypatch.setenv("AMP_AGENTID_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("AMP_AGENTID_TOKEN_ENDPOINT", "http://127.0.0.1:9/oauth2/token")
+    assert await run(parse_args(["--serve"])) == 1
+    assert "cannot get the agent's token for the MCP handshake" in capsys.readouterr().err

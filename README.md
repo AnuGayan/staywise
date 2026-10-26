@@ -14,9 +14,9 @@ The design is in [`docs/concierge-flow.html`](docs/concierge-flow.html). All hot
           │ Bearer <user token>                                          │
           ▼                                                              │
    Agent Manager gateway (validates) ──▶ agent :8000 ──▶ Ollama qwen3:1.7b
-                                          │ Bearer <1-scope token> + API-Key
+                                          │ Bearer <1-scope token>
                                           ▼
-                       gateway MCP proxies ──▶ hotel-info :8101 · reservations :8102 · unity-loyalty :8103
+           gateway MCP proxies (JWT) ──▶ hotel-info :8101 · reservations :8102 · unity-loyalty :8103
 ```
 
 ## Tools
@@ -111,23 +111,25 @@ Open http://localhost:9100. Every sign-in asks for credentials (`prompt=login`),
 
 **MCP tokens** (`concierge/tokens.py`). When Agent Manager provides the agent identity (`AMP_AGENTID_CLIENT_ID`, `AMP_AGENTID_CLIENT_SECRET`, `AMP_AGENTID_TOKEN_ENDPOINT`), every tool call works like this:
 
-1. The agent gets its own token (`client_credentials`, `resource=urn:hardrock:concierge-api`).
+1. The agent gets its own token (`client_credentials`, `resource=urn:hardrock:concierge-api`). It also sends this token on the startup handshake (`initialize`, `tools/list`), before any guest is involved.
 2. It exchanges the guest's token (subject) plus its own token (actor) for a token with only that tool's scope (RFC 8693).
-3. It sends that token as `Authorization: Bearer` to the MCP proxy, next to the `API-Key`.
+3. It sends that token as `Authorization: Bearer` to the MCP proxy, whose JWT authentication validates it. An `API-Key` header is added only if `<PREFIX>_API_KEY` is set.
 
-Tokens are cached per guest and scope until a minute before they expire. If ThunderID refuses, or doesn't grant the scope, the tool returns `Error: not authorized to use <tool>: …` and the model explains it. Without the identity variables (e.g. locally), MCP calls carry only their API keys.
+A tool outside the scope map, or a call without a guest token, carries the agent's own token. If the agent's token can't be obtained at startup, `--serve` exits with code 1.
+
+Tokens are cached per guest and scope until a minute before they expire. If ThunderID refuses, or doesn't grant the scope, the tool returns `Error: not authorized to use <tool>: …` and the model explains it. Without the identity variables (e.g. locally), MCP calls carry no token.
 
 **MCP servers from environment variables** (what the image uses in Agent Manager): with `--mcp-from-env` (or `MCP_FROM_ENV=true`) the agent ignores `--config` and reads, for each prefix in `MCP_ENV_PREFIXES` (default `HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY`):
 
 | Variable | Meaning |
 |---|---|
 | `<PREFIX>_URL` | the MCP endpoint, or several separated by commas |
-| `<PREFIX>_API_KEY` | sent as the `API-Key` header (with an empty `Authorization` header, which a per-call token replaces), as in Agent Manager's client snippet |
+| `<PREFIX>_API_KEY` | optional; sent as the `API-Key` header for proxies that authenticate with API keys. JWT-protected proxies need none: every request carries `Authorization: Bearer <token>` |
 
-A prefix with neither variable set is skipped. A URL without a key, or a key without a URL, is an error. If your variables use other prefixes, set `MCP_ENV_PREFIXES` to match.
+A prefix without a URL is skipped. A key without a URL is an error. If your variables use other prefixes, set `MCP_ENV_PREFIXES` to match.
 
 ```bash
-MCP_FROM_ENV=true UNITY_LOYALTY_URL=https://…/mcp UNITY_LOYALTY_API_KEY=… hardrock-concierge -p "What's my Unity points balance?"
+MCP_FROM_ENV=true UNITY_LOYALTY_URL=https://…/mcp hardrock-concierge -p "What's my Unity points balance?"
 ```
 
 Otherwise, server lists are in `mcp_servers*.json` (Claude Desktop `mcpServers` shape, `${VAR}` expanded from the environment):
@@ -146,7 +148,7 @@ docker build -t hardrock-concierge:dev .
 
 The image runs only the agent API, on port 8000 (`PORT`), the port Agent Manager gives the agent's service. It needs no sign-in settings, because the gateway validates user tokens. Agent Manager injects what the agent uses:
 
-- **MCP servers:** `<PREFIX>_URL` / `<PREFIX>_API_KEY`. The image sets `MCP_FROM_ENV=true`.
+- **MCP servers:** `<PREFIX>_URL`, plus `<PREFIX>_API_KEY` only for API-key proxies. The image sets `MCP_FROM_ENV=true`. With JWT-protected proxies, every MCP request carries a bearer token from the agent identity below.
 - **Model:** `LLM_BASE_URL`, `LLM_API_KEY`. The image sets `LLM_API_KEY_HEADER=API-Key`, the header Agent Manager's LLM proxies check. A provider you configure yourself may use another, e.g. `X-API-Key`.
 - **Agent identity for token exchange:** `AMP_AGENTID_*`. `AMP_AGENTID_TOKEN_ENDPOINT` is Thunder's in-cluster service on port 8090, which the agent sandbox's network policy allows.
 - **Tracing:** `AMP_OTEL_ENDPOINT`, `AMP_AGENT_API_KEY`.

@@ -14,7 +14,7 @@ _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _PREFIX = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 # The servers the concierge expects, as Agent Manager names their variables: <PREFIX>_URL holds one or
-# more comma-separated MCP endpoint URLs and <PREFIX>_API_KEY the gateway API key for them.
+# more comma-separated MCP endpoint URLs and <PREFIX>_API_KEY an optional gateway API key for them.
 DEFAULT_ENV_PREFIXES = ("HOTEL_INFO", "RESERVATIONS", "UNITY_LOYALTY")
 API_KEY_HEADER = "API-Key"
 
@@ -77,15 +77,16 @@ def _expand(value: str, env: Mapping[str, str], server: str) -> str:
 
 
 def load_env_servers(prefixes: Sequence[str], environ: Mapping[str, str] | None = None) -> list[ServerConfig]:
-    """Build server configs from `<PREFIX>_URL` / `<PREFIX>_API_KEY` pairs.
+    """Build server configs from `<PREFIX>_URL` and an optional `<PREFIX>_API_KEY`.
 
     Each URL becomes one Streamable HTTP server named after the prefix (`UNITY_LOYALTY` ->
-    `unity-loyalty`, with `-1`, `-2`... when a variable lists several URLs). Requests carry the key
-    in the `API-Key` header and an empty `Authorization` header, matching Agent Manager's client
-    snippet. A prefix with neither variable set is skipped, so an agent can attach a subset.
+    `unity-loyalty`, with `-1`, `-2`... when a variable lists several URLs). A key, when set, is sent
+    in the `API-Key` header; proxies that authenticate with JWTs need none, since every request
+    carries `Authorization: Bearer <token>` (see `hub.BearerAuth`). A prefix without a URL is
+    skipped, so an agent can attach a subset.
 
     Raises:
-        ConfigError: if a prefix is malformed, a URL has no key (or a key no URL), or no server is configured.
+        ConfigError: if a prefix is malformed, a key has no URL, or no server is configured.
     """
     env = os.environ if environ is None else environ
     configs: list[ServerConfig] = []
@@ -94,13 +95,12 @@ def load_env_servers(prefixes: Sequence[str], environ: Mapping[str, str] | None 
             raise ConfigError(f"MCP env prefix {prefix!r} must be upper-case letters, digits and underscores")
         urls = [url.strip() for url in env.get(f"{prefix}_URL", "").split(",") if url.strip()]
         api_key = env.get(f"{prefix}_API_KEY", "").strip()
-        if not urls and not api_key:
+        if not urls:
+            if api_key:
+                raise ConfigError(f"{prefix}_URL is not set, but {prefix}_API_KEY is")
             continue
-        if not urls or not api_key:
-            missing = f"{prefix}_URL" if not urls else f"{prefix}_API_KEY"
-            raise ConfigError(f"{missing} is not set, but {prefix}_{'API_KEY' if not urls else 'URL'} is")
         name = prefix.lower().replace("_", "-")
-        headers = {API_KEY_HEADER: api_key, "Authorization": ""}
+        headers = {API_KEY_HEADER: api_key} if api_key else {}
         for index, url in enumerate(urls, start=1):
             server_name = name if len(urls) == 1 else f"{name}-{index}"
             configs.append(ServerConfig(name=server_name, url=url, headers=headers))

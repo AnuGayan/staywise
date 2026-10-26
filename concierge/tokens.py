@@ -109,7 +109,7 @@ class TokenBroker:
                     "grant_type": TOKEN_EXCHANGE,
                     "subject_token": user_token,
                     "subject_token_type": ACCESS_TOKEN_TYPE,
-                    "actor_token": await self._agent_token(),
+                    "actor_token": await self.agent_token(),
                     "actor_token_type": ACCESS_TOKEN_TYPE,
                     "requested_token_type": ACCESS_TOKEN_TYPE,
                     "resource": self._identity.resource,
@@ -125,7 +125,12 @@ class TokenBroker:
             self._exchanged.popitem(last=False)
         return token
 
-    async def _agent_token(self) -> str:
+    async def agent_token(self) -> str:
+        """The agent's own token (client_credentials), cached until shortly before it expires.
+
+        Raises:
+            TokenError: if ThunderID refuses or can't be reached.
+        """
         if self._agent and self._fresh(self._agent):
             return self._agent.token
         body = await self._token_request(
@@ -182,7 +187,9 @@ class ToolCaller(Protocol):
 class GuestTools:
     """The hub's tools as one guest's conversation sees them: each call carries a token minted for it.
 
-    Without a broker (no agent identity, e.g. locally) calls go out with the MCP API keys only.
+    Tools in the scope map get a token exchanged for the guest; anything else, or a turn without a
+    guest token, uses the agent's own token. Without a broker (no agent identity, e.g. locally)
+    calls carry no token.
     """
 
     def __init__(self, hub: ToolCaller, broker: TokenBroker | None, scopes: Mapping[str, str] = TOOL_SCOPES):
@@ -197,11 +204,14 @@ class GuestTools:
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Run a tool for the guest. A refused token comes back as an "Error: ..." the model can explain."""
-        scope = self._scopes.get(name)
-        if self._broker is None or scope is None or not self.user_token:
+        if self._broker is None:
             return await self._hub.call_tool(name, arguments)
+        scope = self._scopes.get(name)
         try:
-            token = await self._broker.for_guest(self.user_token, scope)
+            if scope is not None and self.user_token:
+                token = await self._broker.for_guest(self.user_token, scope)
+            else:
+                token = await self._broker.agent_token()
         except TokenError as exc:
             return f"Error: not authorized to use {name}: {exc}"
         return await self._hub.call_tool(name, arguments, bearer=token)

@@ -1,11 +1,11 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import date
 from pathlib import Path
 
 import httpx
 import pytest
-from mcp import types
+from mcp import ClientSession, types
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from concierge.config import ServerConfig
@@ -192,3 +192,28 @@ async def test_bearer_is_set_for_the_call_and_cleared_after(tmp_path: Path) -> N
         assert spy.token is None
         await hub.call_tool("get_unity_balance", {"member_id": "HR-100245"})
         assert seen == ["exchanged", None]
+
+
+async def test_connect_sends_the_startup_token_only_during_the_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
+    from concierge import hub as hub_module
+
+    hotel = hotel_info_server.create_server()
+    seen: list[str | None] = []
+    auth = BearerAuth()
+
+    async def fake_open_session(stack: AsyncExitStack, config: ServerConfig) -> tuple[ClientSession, BearerAuth]:
+        session = await stack.enter_async_context(create_connected_server_and_client_session(hotel._mcp_server))
+        original = session.initialize
+
+        async def initialize() -> types.InitializeResult:
+            seen.append(auth.token)
+            return await original()
+
+        session.initialize = initialize  # type: ignore[method-assign]
+        return session, auth
+
+    monkeypatch.setattr(hub_module, "_open_session", fake_open_session)
+    async with connect([ServerConfig(name="hotel-info", url="http://gw/mcp")], startup_token="agent-at") as hub:
+        assert seen == ["agent-at"]
+        assert auth.token is None
+        assert "get_hotel_info" in hub.tool_names

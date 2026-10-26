@@ -32,7 +32,7 @@ from concierge.http_api import Runtime, create_app
 from concierge.hub import McpConnectionError, McpHub, connect
 from concierge.identity import Guest, MemberMapError, load_members
 from concierge.openai_compat import DEFAULT_API_KEY_HEADER, OpenAIChatClient
-from concierge.tokens import AgentIdentity, GuestTools, TokenBroker, TokenConfigError
+from concierge.tokens import AgentIdentity, GuestTools, TokenBroker, TokenConfigError, TokenError
 
 DEFAULT_MODEL = "qwen3:1.7b"
 DEFAULT_PORT = 8000
@@ -165,37 +165,51 @@ async def open_llm(args: argparse.Namespace) -> AsyncIterator[ChatClient]:
 
 async def serve(
     args: argparse.Namespace, configs: list[ServerConfig], members: dict[str, str], identity: AgentIdentity | None
-) -> None:
-    """Serve the agent's HTTP API, sharing one MCP hub, LLM client and token broker across guests."""
-    async with connect(configs) as hub, open_llm(args) as llm, httpx.AsyncClient(timeout=10) as http:
+) -> int:
+    """Serve the agent's HTTP API, sharing one MCP hub, LLM client and token broker across guests.
+
+    Returns an exit code: 1 if the agent's own token (needed for the MCP handshake) can't be obtained.
+    """
+    async with httpx.AsyncClient(timeout=10) as http:
         broker = TokenBroker(identity, http) if identity else None
+        try:
+            startup_token = await broker.agent_token() if broker else None
+        except TokenError as exc:
+            print(f"error: cannot get the agent's token for the MCP handshake: {exc}", file=sys.stderr)
+            return 1
+        async with connect(configs, startup_token) as hub, open_llm(args) as llm:
 
-        def new_conversation(guest: Guest, on_tool_call: ToolCallObserver) -> tuple[Agent, GuestTools]:
-            tools = GuestTools(hub, broker)
-            agent = Agent(
-                llm,
-                tools,
-                args.model,
-                system_prompt=build_system_prompt(guest.member_id, date.today()),
-                max_steps=args.max_steps,
-                on_tool_call=on_tool_call,
+            def new_conversation(guest: Guest, on_tool_call: ToolCallObserver) -> tuple[Agent, GuestTools]:
+                tools = GuestTools(hub, broker)
+                agent = Agent(
+                    llm,
+                    tools,
+                    args.model,
+                    system_prompt=build_system_prompt(guest.member_id, date.today()),
+                    max_steps=args.max_steps,
+                    on_tool_call=on_tool_call,
+                )
+                return agent, tools
+
+            runtime = Runtime(model=args.model, tool_names=hub.tool_names, new_conversation=new_conversation)
+            config = uvicorn.Config(
+                create_app(runtime, members),
+                host=args.host,
+                port=args.port,
+                log_level="info" if args.verbose else "warning",
             )
-            return agent, tools
-
-        runtime = Runtime(model=args.model, tool_names=hub.tool_names, new_conversation=new_conversation)
-        config = uvicorn.Config(
-            create_app(runtime, members),
-            host=args.host,
-            port=args.port,
-            log_level="info" if args.verbose else "warning",
-        )
-        exchange = f"token exchange as {identity.client_id}" if identity else "no agent identity: MCP API keys only"
-        print(
-            f"Concierge agent API on http://{args.host}:{args.port} (model {args.model}; {exchange}; "
-            f"tools: {', '.join(hub.tool_names)})",
-            flush=True,
-        )
-        await uvicorn.Server(config).serve()
+            tokens = (
+                f"MCP calls carry JWTs: token exchange as {identity.client_id}"
+                if identity
+                else "no agent identity: MCP calls carry no token"
+            )
+            print(
+                f"Concierge agent API on http://{args.host}:{args.port} (model {args.model}; {tokens}; "
+                f"tools: {', '.join(hub.tool_names)})",
+                flush=True,
+            )
+            await uvicorn.Server(config).serve()
+    return 0
 
 
 def _prefixes(raw: str) -> list[str]:
@@ -217,8 +231,7 @@ async def run(args: argparse.Namespace) -> int:
             except (MemberMapError, TokenConfigError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 2
-            await serve(args, configs, members, identity)
-            return 0
+            return await serve(args, configs, members, identity)
         async with connect(configs) as hub, open_llm(args) as llm:
             agent = Agent(
                 llm,
