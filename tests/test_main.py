@@ -92,3 +92,24 @@ async def test_serve_exits_2_on_unreadable_member_map(
     monkeypatch.setenv("CONCIERGE_CLIENT_SECRET", "x")
     assert await run(parse_args(["--serve", "--members", str(tmp_path / "none.json")])) == 2
     assert "cannot read member map" in capsys.readouterr().err
+
+
+def test_mcp_from_env_flag_and_prefixes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MCP_FROM_ENV", raising=False)
+    monkeypatch.delenv("MCP_ENV_PREFIXES", raising=False)
+    args = parse_args([])
+    assert (args.mcp_from_env, args.mcp_env_prefixes) == (False, "HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY")
+    monkeypatch.setenv("MCP_FROM_ENV", "true")
+    monkeypatch.setenv("MCP_ENV_PREFIXES", "UNITY_LOYALTY")
+    args = parse_args([])
+    assert (args.mcp_from_env, args.mcp_env_prefixes) == (True, "UNITY_LOYALTY")
+
+
+async def test_run_exits_2_when_env_has_no_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for prefix in ("HOTEL_INFO", "RESERVATIONS", "UNITY_LOYALTY"):
+        monkeypatch.delenv(f"{prefix}_URL", raising=False)
+        monkeypatch.delenv(f"{prefix}_API_KEY", raising=False)
+    assert await run(parse_args(["--mcp-from-env", "-p", "hi"])) == 2
+    assert "no MCP servers configured in the environment" in capsys.readouterr().err

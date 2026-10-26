@@ -1,5 +1,6 @@
-# Concierge agent image for WSO2 Agent Manager. The MCP servers and Ollama run on the Mac host;
-# inside k3d the host is reachable at 192.168.5.2 (host.k3d.internal does not resolve there).
+# Concierge agent image for WSO2 Agent Manager. MCP servers come from the variables Agent Manager sets for
+# each attached MCP server (<PREFIX>_URL, <PREFIX>_API_KEY; prefixes in MCP_ENV_PREFIXES). The model is
+# reached through the gateway's LLM provider (LLM_BASE_URL, LLM_API_KEY, LLM_API_KEY_HEADER).
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -10,8 +11,9 @@ COPY mcp_servers.remote.json mcp_servers.gateway.json ./
 COPY config ./config
 RUN pip install --no-cache-dir ".[amp]"
 
-ENV MCP_HOST=192.168.5.2 \
-    OLLAMA_HOST=http://192.168.5.2:11434 \
+ENV MCP_FROM_ENV=true \
+    MCP_ENV_PREFIXES=HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY \
+    LLM_API_KEY_HEADER=X-API-Key \
     OLLAMA_MODEL=qwen3:1.7b \
     CONCIERGE_MEMBERS=/app/config/members.json
 # Tracing: Agent Manager injects AMP_OTEL_ENDPOINT and AMP_AGENT_API_KEY; amp-instrument exports
@@ -22,4 +24,4 @@ ENV MCP_HOST=192.168.5.2 \
 
 USER 10001
 EXPOSE 9100
-CMD ["amp-instrument", "hardrock-concierge", "--serve", "--host", "0.0.0.0", "--port", "9100", "-c", "/app/mcp_servers.remote.json"]
+CMD ["amp-instrument", "hardrock-concierge", "--serve", "--host", "0.0.0.0", "--port", "9100"]

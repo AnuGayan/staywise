@@ -28,7 +28,7 @@ from concierge.agent import (
     build_system_prompt,
 )
 from concierge.auth import AuthConfigError, OidcClient, OidcSettings, SignedInGuest, WebAuth, load_members
-from concierge.config import ConfigError, ServerConfig, load_config
+from concierge.config import DEFAULT_ENV_PREFIXES, ConfigError, ServerConfig, load_config, load_env_servers
 from concierge.http_api import Runtime, create_app
 from concierge.hub import McpConnectionError, McpHub, connect
 from concierge.openai_compat import DEFAULT_API_KEY_HEADER, OpenAIChatClient
@@ -71,6 +71,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="JSON map of ThunderID username to Unity member id (with --serve)",
     )
     parser.add_argument("-c", "--config", type=Path, default=DEFAULT_CONFIG, help="MCP servers JSON file")
+    parser.add_argument(
+        "--mcp-from-env",
+        action="store_true",
+        default=os.environ.get("MCP_FROM_ENV", "").lower() in ("1", "true", "yes"),
+        help="read MCP servers from <PREFIX>_URL / <PREFIX>_API_KEY variables (as Agent Manager provides) "
+        "instead of --config; also MCP_FROM_ENV=true",
+    )
+    parser.add_argument(
+        "--mcp-env-prefixes",
+        default=os.environ.get("MCP_ENV_PREFIXES", ",".join(DEFAULT_ENV_PREFIXES)),
+        help="comma-separated variable prefixes for --mcp-from-env (default %(default)s)",
+    )
     parser.add_argument("-p", "--prompt", help="ask one question and exit instead of starting a chat")
     parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS, help="tool-calling rounds per question")
     parser.add_argument("-v", "--verbose", action="store_true", help="log MCP connection details")
@@ -176,10 +188,14 @@ async def serve(
         await uvicorn.Server(config).serve()
 
 
+def _prefixes(raw: str) -> list[str]:
+    return [prefix.strip() for prefix in raw.split(",") if prefix.strip()]
+
+
 async def run(args: argparse.Namespace) -> int:
     """Connect to the MCP servers and run one prompt, the chat loop, or the HTTP API. Returns an exit code."""
     try:
-        configs = load_config(args.config)
+        configs = load_env_servers(_prefixes(args.mcp_env_prefixes)) if args.mcp_from_env else load_config(args.config)
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

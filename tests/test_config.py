@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from concierge.config import ConfigError, ServerConfig, load_config
+from concierge.config import DEFAULT_ENV_PREFIXES, ConfigError, ServerConfig, load_config, load_env_servers
 
 
 def write_config(tmp_path: Path, servers: object) -> Path:
@@ -96,3 +96,45 @@ def test_shipped_gateway_config_routes_every_server_through_the_gateway() -> Non
         ("reservations", f"{gateway}/reservations/mcp"),
         ("unity-loyalty", f"{gateway}/unity/mcp"),
     ]
+
+
+def test_env_servers_follow_agent_manager_variables() -> None:
+    env = {
+        "HOTEL_INFO_URL": " https://gw/hotel-info/mcp ",
+        "HOTEL_INFO_API_KEY": "k1",
+        "UNITY_LOYALTY_URL": "https://gw/unity/mcp",
+        "UNITY_LOYALTY_API_KEY": " k3 ",
+    }
+    configs = load_env_servers(DEFAULT_ENV_PREFIXES, env)
+    assert configs == [
+        ServerConfig(
+            name="hotel-info", url="https://gw/hotel-info/mcp", headers={"API-Key": "k1", "Authorization": ""}
+        ),
+        ServerConfig(name="unity-loyalty", url="https://gw/unity/mcp", headers={"API-Key": "k3", "Authorization": ""}),
+    ]
+
+
+def test_env_servers_split_comma_separated_urls() -> None:
+    env = {"RESERVATIONS_URL": "https://a/mcp, ,https://b/mcp", "RESERVATIONS_API_KEY": "k"}
+    assert [(c.name, c.url) for c in load_env_servers(["RESERVATIONS"], env)] == [
+        ("reservations-1", "https://a/mcp"),
+        ("reservations-2", "https://b/mcp"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        ({"RESERVATIONS_URL": "https://a/mcp"}, "RESERVATIONS_API_KEY is not set, but RESERVATIONS_URL is"),
+        ({"RESERVATIONS_API_KEY": "k"}, "RESERVATIONS_URL is not set, but RESERVATIONS_API_KEY is"),
+        ({}, "no MCP servers configured in the environment; expected some of: RESERVATIONS_URL"),
+    ],
+)
+def test_env_servers_report_incomplete_configuration(env: dict[str, str], message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_env_servers(["RESERVATIONS"], env)
+
+
+def test_env_servers_reject_bad_prefixes() -> None:
+    with pytest.raises(ConfigError, match="upper-case"):
+        load_env_servers(["unity-loyalty"], {})

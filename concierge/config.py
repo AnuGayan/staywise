@@ -1,15 +1,22 @@
-"""Loads the MCP server list from a Claude-Desktop-style `mcpServers` JSON file."""
+"""Loads the MCP server list from a Claude-Desktop-style `mcpServers` JSON file, or from environment
+variables in the shape Agent Manager provides for MCP servers attached to an agent."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_PREFIX = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+# The servers the concierge expects, as Agent Manager names their variables: <PREFIX>_URL holds one or
+# more comma-separated MCP endpoint URLs and <PREFIX>_API_KEY the gateway API key for them.
+DEFAULT_ENV_PREFIXES = ("HOTEL_INFO", "RESERVATIONS", "UNITY_LOYALTY")
+API_KEY_HEADER = "API-Key"
 
 
 class ConfigError(ValueError):
@@ -67,3 +74,37 @@ def _expand(value: str, env: Mapping[str, str], server: str) -> str:
         return env[var]
 
     return _ENV_REF.sub(lookup, value)
+
+
+def load_env_servers(prefixes: Sequence[str], environ: Mapping[str, str] | None = None) -> list[ServerConfig]:
+    """Build server configs from `<PREFIX>_URL` / `<PREFIX>_API_KEY` pairs.
+
+    Each URL becomes one Streamable HTTP server named after the prefix (`UNITY_LOYALTY` ->
+    `unity-loyalty`, with `-1`, `-2`... when a variable lists several URLs). Requests carry the key
+    in the `API-Key` header and an empty `Authorization` header, matching Agent Manager's client
+    snippet. A prefix with neither variable set is skipped, so an agent can attach a subset.
+
+    Raises:
+        ConfigError: if a prefix is malformed, a URL has no key (or a key no URL), or no server is configured.
+    """
+    env = os.environ if environ is None else environ
+    configs: list[ServerConfig] = []
+    for prefix in prefixes:
+        if not _PREFIX.match(prefix):
+            raise ConfigError(f"MCP env prefix {prefix!r} must be upper-case letters, digits and underscores")
+        urls = [url.strip() for url in env.get(f"{prefix}_URL", "").split(",") if url.strip()]
+        api_key = env.get(f"{prefix}_API_KEY", "").strip()
+        if not urls and not api_key:
+            continue
+        if not urls or not api_key:
+            missing = f"{prefix}_URL" if not urls else f"{prefix}_API_KEY"
+            raise ConfigError(f"{missing} is not set, but {prefix}_{'API_KEY' if not urls else 'URL'} is")
+        name = prefix.lower().replace("_", "-")
+        headers = {API_KEY_HEADER: api_key, "Authorization": ""}
+        for index, url in enumerate(urls, start=1):
+            server_name = name if len(urls) == 1 else f"{name}-{index}"
+            configs.append(ServerConfig(name=server_name, url=url, headers=headers))
+    if not configs:
+        expected = ", ".join(f"{prefix}_URL" for prefix in prefixes)
+        raise ConfigError(f"no MCP servers configured in the environment; expected some of: {expected}")
+    return configs

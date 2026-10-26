@@ -103,7 +103,20 @@ How sign-in works: the agent redirects to ThunderID with PKCE (S256), a `nonce`,
 | `POST /chat {"message"}`, `DELETE /chat` | chat as the signed-in guest; start over |
 | `GET /health` | model and tools (public) |
 
-Server lists are in `mcp_servers*.json` (Claude Desktop `mcpServers` shape, `${VAR}` expanded from the environment):
+**MCP servers from environment variables** (what the image uses in Agent Manager): with `--mcp-from-env` (or `MCP_FROM_ENV=true`) the agent ignores `--config` and reads, for each prefix in `MCP_ENV_PREFIXES` (default `HOTEL_INFO,RESERVATIONS,UNITY_LOYALTY`):
+
+| Variable | Meaning |
+|---|---|
+| `<PREFIX>_URL` | the MCP endpoint, or several separated by commas |
+| `<PREFIX>_API_KEY` | sent as the `API-Key` header (with an empty `Authorization` header), as in Agent Manager's client snippet |
+
+A prefix with neither variable set is skipped. A URL without a key, or a key without a URL, is an error. If your variables use other prefixes, set `MCP_ENV_PREFIXES` to match.
+
+```bash
+MCP_FROM_ENV=true UNITY_LOYALTY_URL=https://…/mcp UNITY_LOYALTY_API_KEY=… hardrock-concierge -p "What's my Unity points balance?"
+```
+
+Otherwise, server lists are in `mcp_servers*.json` (Claude Desktop `mcpServers` shape, `${VAR}` expanded from the environment):
 
 | File | Use |
 |---|---|
@@ -117,10 +130,25 @@ Server lists are in `mcp_servers*.json` (Claude Desktop `mcpServers` shape, `${V
 docker build -t hardrock-concierge:dev .
 ```
 
-The image serves the web chat on port 9100 and reads `mcp_servers.remote.json` with `MCP_HOST=192.168.5.2`, the Mac host as seen from the k3d cluster. The deployment also needs the sign-in variables from `.env.thunder`, with `CONCIERGE_PUBLIC_URL` set to the URL browsers use and that URL registered through `AGENT_PUBLIC_URLS`. The pod must be able to reach ThunderID at `THUNDER_ISSUER`. This hasn't been tried in the cluster yet. For a pod to reach the servers and Ollama on the Mac:
+The image serves the web chat on port 9100. It reads the MCP servers from Agent Manager's `<PREFIX>_URL` / `<PREFIX>_API_KEY` variables (`MCP_FROM_ENV=true`) and calls the model through the gateway LLM provider (`LLM_BASE_URL`, `LLM_API_KEY`, with `LLM_API_KEY_HEADER=X-API-Key`). The deployment also needs the sign-in variables from `.env.thunder`, with `CONCIERGE_PUBLIC_URL` set to the URL browsers use and that URL registered through `AGENT_PUBLIC_URLS`. The pod must be able to reach ThunderID at `THUNDER_ISSUER`. This hasn't been tried in the cluster yet.
 
-- Start each server with `--host 0.0.0.0 --allowed-host 192.168.5.2`. This exposes the unauthenticated servers on your network.
-- Run Ollama listening beyond loopback (`OLLAMA_HOST=0.0.0.0 ollama serve`), or set `OLLAMA_HOST` / `LLM_BASE_URL` in the deployment to another endpoint.
+Hosted pods can only reach the gateway, not the Mac directly, so both the model and the MCP servers go through it. The MCP servers are registered in the console from their public tunnel URLs (next section).
+
+## Public MCP URLs for the Agent Manager console
+
+The console won't register MCP servers on private addresses. `scripts/mcp-tunnels.sh` puts each local server behind a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) (needs `cloudflared`; no account):
+
+```bash
+scripts/mcp-tunnels.sh start    # prints https://<random>.trycloudflare.com/mcp for each server
+scripts/mcp-tunnels.sh status
+scripts/mcp-tunnels.sh stop
+```
+
+Register each printed URL as an MCP server in the console. Each tunnel rewrites `Host` to `localhost:<port>`, so the servers keep their DNS-rebinding protection without extra `--allowed-host` flags.
+
+- **The servers have no authentication.** Anyone who learns a URL can call every tool, including `create_booking` and `cancel_booking`. The data is made up, but stop the tunnels when you're done.
+- The URLs are random and **change every time the tunnels start**, so re-register them in the console after a restart. For stable URLs, use a named Cloudflare tunnel on your own domain, or an ngrok static domain.
+- Quick tunnels have no uptime guarantee. They're fine for a demo, not for anything longer-lived.
 
 ## Tracing (Agent Manager)
 
