@@ -88,8 +88,8 @@ Then the agent and the UI:
 ```bash
 hardrock-concierge --serve                          # agent API on http://127.0.0.1:8000
 set -a; source .env.thunder; set +a
-hardrock-concierge-ui                               # UI on http://localhost:9100, talking to the local agent
-AGENT_URL=http://default-default.am-gateway.localhost:19080/<agent> hardrock-concierge-ui   # or the hosted agent
+hardrock-concierge-ui                               # UI on http://localhost:9100, talking to the hosted agent (melody)
+AGENT_URL=http://localhost:8000 hardrock-concierge-ui   # or to the local agent
 
 hardrock-concierge                                  # terminal chat (no sign-in)
 hardrock-concierge -p "What's my Unity points balance?" --member-id HR-100377 -v
@@ -153,7 +153,7 @@ The image runs only the agent API, on port 8000 (`PORT`), the port Agent Manager
 - **Agent identity for token exchange:** `AMP_AGENTID_*`. `AMP_AGENTID_TOKEN_ENDPOINT` is Thunder's in-cluster service on port 8090, which the agent sandbox's network policy allows.
 - **Tracing:** `AMP_OTEL_ENDPOINT`, `AMP_AGENT_API_KEY`.
 
-Run the UI on your machine with `AGENT_URL` set to the agent's endpoint, e.g. `http://default-default.am-gateway.localhost:19080/<agent>`. While Agent Manager still requires an API key on that endpoint, set `AGENT_API_KEY` too.
+Run the UI on your machine. Its default `AGENT_URL` is the hosted agent's endpoint, `http://default-default.am-gateway.localhost:19080/melody`. While Agent Manager still requires an API key on that endpoint, set `AGENT_API_KEY` too.
 
 Hosted pods can only reach the gateway, not the Mac directly, so both the model and the MCP servers go through it. The MCP servers are registered in the console from their public tunnel URLs (next section).
 

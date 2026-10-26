@@ -15,7 +15,8 @@ from concierge.auth import AuthConfigError, OidcClient, OidcSettings, WebAuth
 from concierge.ui_app import create_app
 
 DEFAULT_PORT = 9100
-DEFAULT_AGENT_URL = "http://localhost:8000"
+# The concierge agent hosted in Agent Manager (agent `melody`), reached through its gateway.
+DEFAULT_AGENT_URL = "http://default-default.am-gateway.localhost:19080/melody"
 DEFAULT_AGENT_API_KEY_HEADER = "API-Key"
 
 
