@@ -44,9 +44,20 @@ grants_of() {
   jq -r '[.inboundAuthConfig[]? | select(.type == "oauth2") | .config.grantTypes[]?] | join(" ")' <<<"$1"
 }
 
-api GET "/agents?limit=200"
-[[ "$API_STATUS" == "200" ]] || die "GET /agents -> HTTP $API_STATUS"
-agent_ids=$(jq -r '(if type == "array" then . else (.agents // []) end)[] | .id' <<<"$API_BODY")
+# ThunderID caps list pages at 100 (MaxPageSize), so walk the pages.
+PAGE_SIZE=100
+agent_ids=""
+offset=0
+while :; do
+  api GET "/agents?limit=$PAGE_SIZE&offset=$offset"
+  [[ "$API_STATUS" == "200" ]] || die "GET /agents -> HTTP $API_STATUS $(jq -c '{code,message,description}' <<<"$API_BODY" 2>/dev/null || true)"
+  page_ids=$(jq -r '(.agents // [])[] | .id' <<<"$API_BODY")
+  agent_ids+="$page_ids"$'\n'
+  count=$(jq -r '(.agents // []) | length' <<<"$API_BODY")
+  total=$(jq -r '.totalResults // 0' <<<"$API_BODY")
+  offset=$((offset + count))
+  ((count > 0 && offset < total)) || break
+done
 agent_id=""
 agent_json=""
 while read -r id; do
