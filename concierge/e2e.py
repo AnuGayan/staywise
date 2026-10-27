@@ -315,7 +315,7 @@ class Outcome:
 ChatFn = Callable[[str, str, str | None], Awaitable[Turn]]
 
 
-def make_chat(agent: httpx.AsyncClient) -> ChatFn:
+def make_chat(agent: httpx.AsyncClient, timeout: float = CHAT_TIMEOUT_SECONDS) -> ChatFn:
     """POST /chat to the agent (through the gateway) as the holder of `token`."""
 
     async def chat(message: str, conversation_id: str, token: str | None) -> Turn:
@@ -325,7 +325,7 @@ def make_chat(agent: httpx.AsyncClient) -> ChatFn:
             "chat",
             json={"message": message, "conversation_id": conversation_id},
             headers=headers,
-            timeout=CHAT_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
         body = _json(response)
         return Turn(

@@ -47,6 +47,27 @@ MEMBERS: tuple[Member, ...] = (
     Member("HR-100512", "Daniel Okafor", "Icon", 61_200),
 )
 
+# Load-test guests (ThunderID users loadtest01..loadtest50, see wso2/thunder/loadtest-users.sh), one
+# membership each so concurrent conversations never share bookings or points.
+LOADTEST_USERS = 50
+_LOADTEST_TIERS = (("Star", 2_000), ("Legend", 15_000), ("Icon", 55_000))
+
+
+def loadtest_member_id(index: int) -> str:
+    """The Unity member id of load-test user `index` (1-based): HR-300001, HR-300002, ..."""
+    return f"HR-{300_000 + index}"
+
+
+LOADTEST_MEMBERS: tuple[Member, ...] = tuple(
+    Member(
+        loadtest_member_id(i),
+        f"Load Test {i:02d}",
+        _LOADTEST_TIERS[i % 3][0],
+        _LOADTEST_TIERS[i % 3][1] + i * 10,
+    )
+    for i in range(1, LOADTEST_USERS + 1)
+)
+MEMBERS = MEMBERS + LOADTEST_MEMBERS
 MEMBER_IDS = {member.member_id for member in MEMBERS}
 
 # (confirmation_number, member_id, room_code, check_in, check_out, guests, status, special_requests)
@@ -70,6 +91,15 @@ SEED_POINTS: tuple[tuple[str, str, str, int], ...] = (
     ("HR-100512", "2025-11-30", "Stay: Hard Rock Hotel Miami, 5 nights", 41_250),
     ("HR-100512", "2026-02-14", "Entertainment: concert package", 18_900),
     ("HR-100512", "2026-06-01", "Redeemed: suite upgrade", -12_000),
+)
+
+SEED_POINTS = SEED_POINTS + tuple(
+    row
+    for i in range(1, LOADTEST_USERS + 1)
+    for row in (
+        (loadtest_member_id(i), "2026-01-15", "Welcome bonus", 2_500),
+        (loadtest_member_id(i), "2026-06-10", f"Stay: Hard Rock Hotel Miami, {i % 4 + 1} nights", 1_000 + i * 50),
+    )
 )
 
 # Tier credits needed to reach each tier. X is invitation-only, so it has no threshold.

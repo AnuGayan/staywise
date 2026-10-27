@@ -212,6 +212,53 @@ Register each printed URL as an MCP server in the console. Each tunnel rewrites 
 - The URLs are random and **change every time the tunnels start**, so re-register them in the console after a restart. For stable URLs, use a named Cloudflare tunnel on your own domain, or an ngrok static domain.
 - Quick tunnels have no uptime guarantee. They're fine for a demo, not for anything longer-lived.
 
+## Scenario load test
+
+`hardrock-concierge-loadtest` runs many guests at once. Each one signs in at ThunderID, then holds a five-turn conversation with the agent through the Agent Manager gateway. All five turns use one conversation id, so later turns build on earlier ones.
+
+Users alternate between two scenarios:
+
+| Scenario | Turns |
+|---|---|
+| trip planner | 1. bookings + points balance + check-in time (3 MCP tools)<br>2. availability<br>3. "book that" (a follow-up to turn 2)<br>4. upcoming bookings show the new one<br>5. cancel it |
+| loyalty review | 1. points balance + points activity (2 tools)<br>2. room types + check-out time (2 tools)<br>3. book<br>4. booking details<br>5. cancel it |
+
+Every turn is checked the way `hardrock-concierge-e2e` checks it:
+- the expected tools were all called,
+- no tool returned an error,
+- every call used that user's own Unity member,
+- the tool results are right.
+
+A turn whose tool the model skipped is retried once in the same conversation. Each user books dates no other user books, so concurrent users never compete for rooms. Bookings are cancelled at the end; any that can't be cancelled are listed.
+
+**One-time setup** for the 50 load-test users (`loadtest01`…`loadtest50`, Unity members `HR-300001`…`HR-300050`):
+
+```bash
+./wso2/thunder/loadtest-users.sh --from-cluster   # creates the users + role hardrock-loadtest-guest; writes LOADTEST_PASSWORD to .env.thunder
+# restart the three MCP servers (they add the HR-3000NN members to existing databases on start)
+# push and rebuild the agent in Agent Manager (config/members.json maps loadtestNN -> HR-3000NN)
+```
+
+**Run it:**
+
+```bash
+hardrock-concierge-loadtest                                   # 50 users, 5 conversations at a time
+hardrock-concierge-loadtest --users 10 --concurrency 2 -v     # smaller; print every turn as it finishes
+hardrock-concierge-loadtest --usernames alex,priya,daniel --password-env DEMO_PASSWORD   # the demo guests
+hardrock-concierge-loadtest --json results.json               # also save per-user, per-turn results
+```
+
+The report shows:
+- users signed in and fully passed,
+- turn pass rate and retries,
+- MCP tool calls, by tool and how many turns used 2 or more tools,
+- turn latency (p50 / p95 / max),
+- wall time, and leftover bookings.
+
+It exits 1 if any sign-in fails, the pass rate is below `--min-pass-rate` (default 0.9), or a booking is left behind. `./wso2/thunder/loadtest-users.sh --from-cluster --remove` deletes the users.
+
+**Limit to know:** one local `qwen3:1.7b` serves every conversation, so turns queue up. Agent Manager's external route ends a request after 30 s, so a queued turn shows as `HTTP 504: upstream request timeout`. With 3 conversations at once, the median turn took 14 s and the slowest hit the 504. Lower `--concurrency`, give Ollama more parallel slots (`OLLAMA_NUM_PARALLEL`), or use a faster model provider to push it further.
+
 ## Moesif analytics (gateway)
 
 `wso2/gateway/enable-moesif.sh` turns on the API Platform gateway's built-in Moesif publisher, so every request through the gateway is sent to Moesif: agent, MCP and LLM traffic alike.

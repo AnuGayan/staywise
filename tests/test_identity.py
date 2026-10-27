@@ -29,7 +29,13 @@ def test_load_members_rejects_bad_files(tmp_path: Path, content: str) -> None:
 
 def test_shipped_member_map_covers_the_demo_guests() -> None:
     members = load_members(Path(__file__).resolve().parent.parent / "config" / "members.json")
-    assert members == {"alex": "HR-100245", "priya": "HR-100377", "daniel": "HR-100512"}
+    assert {k: members[k] for k in ("alex", "priya", "daniel")} == {
+        "alex": "HR-100245",
+        "priya": "HR-100377",
+        "daniel": "HR-100512",
+    }
+    assert [members[f"loadtest{i:02d}"] for i in (1, 50)] == ["HR-300001", "HR-300050"]
+    assert len(members) == 53
 
 
 @pytest.mark.parametrize(

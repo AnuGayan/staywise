@@ -1,3 +1,5 @@
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -71,3 +73,20 @@ async def test_server_round_trip(store: LoyaltyStore) -> None:
 async def test_server_reports_unknown_member_as_tool_error(store: LoyaltyStore) -> None:
     with pytest.raises(ToolError, match="unknown Unity member id"):
         await create_server(store).call_tool("get_unity_balance", {"member_id": "nobody"})
+
+
+def test_load_test_members_have_their_own_points(store: LoyaltyStore) -> None:
+    first = store.balance("HR-300001")
+    assert (first.name, first.points_balance) == ("Load Test 01", 2_500 + 1_050)
+    assert store.balance("HR-300050").points_balance == 2_500 + 1_000 + 50 * 50
+
+
+def test_members_added_later_reach_an_existing_database(tmp_path: Path) -> None:
+    path = tmp_path / "u.db"
+    LoyaltyStore(path)
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute("DELETE FROM points_activity WHERE member_id LIKE 'HR-3%'")
+        conn.execute("DELETE FROM members WHERE member_id LIKE 'HR-3%'")
+    reopened = LoyaltyStore(path)
+    assert reopened.balance("HR-300007").points_balance == 2_500 + 1_000 + 7 * 50
+    assert len(reopened.activity("HR-100245", limit=50)) == 5  # existing members are not re-seeded

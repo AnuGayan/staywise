@@ -87,15 +87,16 @@ class LoyaltyStore:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn, conn:
             conn.executescript(_SCHEMA)
-            if conn.execute("SELECT COUNT(*) FROM members").fetchone()[0] == 0:
-                conn.executemany(
-                    "INSERT INTO members VALUES (?, ?, ?, ?)",
-                    [(m.member_id, m.name, m.tier, m.tier_credits) for m in MEMBERS],
-                )
-                conn.executemany(
-                    "INSERT INTO points_activity (member_id, date, description, points) VALUES (?, ?, ?, ?)",
-                    SEED_POINTS,
-                )
+            # Upsert, so members added to the demo data later (e.g. load-test guests) reach existing databases.
+            conn.executemany(
+                "INSERT OR IGNORE INTO members VALUES (?, ?, ?, ?)",
+                [(m.member_id, m.name, m.tier, m.tier_credits) for m in MEMBERS],
+            )
+            seeded = {row[0] for row in conn.execute("SELECT DISTINCT member_id FROM points_activity")}
+            conn.executemany(
+                "INSERT INTO points_activity (member_id, date, description, points) VALUES (?, ?, ?, ?)",
+                [row for row in SEED_POINTS if row[0] not in seeded],
+            )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
