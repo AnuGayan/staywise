@@ -91,7 +91,6 @@ attributes:
   family_name: Test $(printf '%02d' "$i")
 credentials:
   password: "{{.LOADTEST_PASSWORD}}"
----
 YAML
 }
 
@@ -107,7 +106,7 @@ import_batch() {
     log "$label: HTTP $API_STATUS (attempt $attempt)"
   done
   [[ "$API_STATUS" == "200" ]] ||
-    die "$label: import failed: HTTP $API_STATUS; re-run the script (it updates in place) or lower --batch-size"
+    die "$label: import failed: HTTP $API_STATUS $(jq -c '{code,message,description}' <<<"$API_BODY" 2>/dev/null || true); re-run the script (it updates in place) or lower --batch-size"
   failed=$(jq -r '.summary.failed' <<<"$API_BODY")
   if [[ "$failed" != "0" ]]; then
     jq -c '.results[] | select(.status != "success") | {resourceType, resourceName, error: (.error // .message // .errorDescription)}' <<<"$API_BODY" >&2
@@ -120,8 +119,10 @@ import_batch() {
 # ThunderID ends requests after ~30 s, so one 50-user import times out (HTTP 504).
 for ((first = 1; first <= COUNT; first += BATCH_SIZE)); do
   last=$((first + BATCH_SIZE - 1 < COUNT ? first + BATCH_SIZE - 1 : COUNT))
+  # "---" only between documents: a trailing one makes an empty document, which the importer rejects
+  # ("document N root must be a YAML mapping").
   content=""
-  for ((i = first; i <= last; i++)); do content+="$(user_yaml "$i")"$'\n'; done
+  for ((i = first; i <= last; i++)); do content+="${content:+---$'\n'}$(user_yaml "$i")"$'\n'; done
   import_batch "users $(username "$first")..$(username "$last")" "$content"
 done
 
