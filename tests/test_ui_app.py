@@ -78,7 +78,7 @@ def test_chat_page_redirects_to_login_until_signed_in() -> None:
     sign_in(client, idp)
     page = client.get("/")
     assert page.status_code == 200
-    assert "<title>Hard Rock Miami Concierge</title>" in page.text
+    assert "<title>Melody · Hard Rock Miami</title>" in page.text
 
 
 def test_session_cookie_is_http_only_and_lax() -> None:

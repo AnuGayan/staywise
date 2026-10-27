@@ -1,6 +1,6 @@
-# Hard Rock Concierge
+# Melody: Hard Rock Concierge
 
-A chat concierge for **Hard Rock Hotel Miami**. It checks a guest's bookings, books rooms and reads their **Unity by Hard Rock** points balance. It has three parts:
+**Melody** is a chat concierge for **Hard Rock Hotel Miami**. It checks a guest's bookings, books rooms and reads their **Unity by Hard Rock** points balance. It has three parts:
 
 - **UI** (`hardrock-concierge-ui`, port 9100): signs the guest in with the **ThunderID bundled in WSO2 Agent Manager** and sends their chat, with their token, to the agent.
 - **Agent** (`hardrock-concierge --serve`, port 8000): an API only. It runs an Ollama model over 9 tools from three MCP servers. The **Agent Manager gateway validates the user token**, and the agent never does. The agent reads the token to know which guest it serves, and exchanges it at ThunderID for a narrow token per tool call.
@@ -294,7 +294,7 @@ Docker-built agents bring their own instrumentation. The image installs the `amp
 Each guest turn is one trace:
 
 ```
-hardrock_concierge.agent            one per question (concierge/agent.py)
+melody.agent                        one per question (concierge/agent.py)
 ├── ollama.chat                     each model call
 ├── get_unity_balance.tool          each MCP tool call
 └── ollama.chat

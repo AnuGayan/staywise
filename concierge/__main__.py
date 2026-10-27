@@ -44,7 +44,7 @@ EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit"}
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line flags; OLLAMA_MODEL, OLLAMA_HOST, LLM_BASE_URL and CONCIERGE_MEMBER_ID provide defaults."""
     parser = argparse.ArgumentParser(
-        prog="concierge", description="Hard Rock Hotel Miami concierge agent over MCP tools."
+        prog="concierge", description="Melody, the Hard Rock Hotel Miami concierge agent over MCP tools."
     )
     parser.add_argument("-m", "--model", default=os.environ.get("OLLAMA_MODEL", DEFAULT_MODEL))
     parser.add_argument("--ollama-host", default=os.environ.get("OLLAMA_HOST"), help="default http://localhost:11434")

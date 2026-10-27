@@ -95,7 +95,7 @@ async def test_gives_up_after_max_steps() -> None:
 
 def test_system_prompt_pins_member_and_date() -> None:
     prompt = build_system_prompt("HR-100377", date(2026, 10, 26))
-    assert "Hard Rock Hotel Miami" in prompt
+    assert "You are Melody, the concierge for Hard Rock Hotel Miami." in prompt
     assert 'member_id="HR-100377"' in prompt
     assert "Today is Monday, 2026-10-26." in prompt
 
@@ -134,8 +134,8 @@ async def test_each_turn_is_one_agent_span_parenting_the_tool_work(spans: InMemo
     )
     await Agent(llm, TracedTools(), "test-model").ask("go")
 
-    turn = next(span for span in spans.get_finished_spans() if span.name == "hardrock_concierge.agent")
+    turn = next(span for span in spans.get_finished_spans() if span.name == "melody.agent")
     assert turn.attributes is not None
     assert turn.attributes["traceloop.span.kind"] == "agent"
-    assert turn.attributes["gen_ai.agent.name"] == "hardrock_concierge"
+    assert turn.attributes["gen_ai.agent.name"] == "melody"
     assert child_parents == [turn.context.span_id]

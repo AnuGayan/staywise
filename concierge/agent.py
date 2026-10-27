@@ -10,7 +10,7 @@ from ollama import ChatResponse, Message
 from opentelemetry import trace
 
 DEFAULT_MEMBER_ID = "HR-100245"
-_SYSTEM_PROMPT = """You are the concierge for Hard Rock Hotel Miami.
+_SYSTEM_PROMPT = """You are Melody, the concierge for Hard Rock Hotel Miami. If asked who you are, you are Melody.
 You are chatting with a signed-in Unity by Hard Rock member.
 The guest's Unity member id is {member_id}. Today is {weekday}, {today}.
 
@@ -31,7 +31,7 @@ def build_system_prompt(member_id: str, today: date) -> str:
 
 
 DEFAULT_MAX_STEPS = 8
-AGENT_NAME = "hardrock_concierge"
+AGENT_NAME = "melody"
 
 # One parent span per guest turn, so the model and MCP spans Traceloop records nest into a single
 # trace. The attributes mark it as an agent span the way Traceloop's @agent decorator does. Without a

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hard Rock Miami Concierge</title>
+<title>Melody · Hard Rock Miami</title>
 <style>
   :root {
     --bg: #f4f5f8; --surface: #ffffff; --fg: #1a1f2b; --muted: #5a6376; --line: #c6ccd8;
@@ -59,7 +59,7 @@
 </head>
 <body>
 <header>
-  <h1>Hard Rock Hotel Miami · Concierge</h1>
+  <h1>Melody · Hard Rock Hotel Miami concierge</h1>
   <span class="who" id="who">Checking sign-in…</span>
   <div class="actions">
     <button type="button" id="new-chat">New chat</button>
@@ -69,7 +69,7 @@
 <main>
   <div class="log" id="log" aria-live="polite">
     <div class="empty" id="empty">
-      <p>Ask about your bookings, book a room, or check your Unity points.</p>
+      <p>Hi, I'm Melody. Ask about your bookings, book a room, or check your Unity points.</p>
       <div class="suggestions">
         <button type="button" class="suggestion">What are my upcoming bookings?</button>
         <button type="button" class="suggestion">Is a Deluxe King free for 2 guests from 2026-12-12 to 2026-12-14?</button>
@@ -80,7 +80,7 @@
 </main>
 <footer>
   <form id="form">
-    <input type="text" id="message" name="message" autocomplete="off" placeholder="Message the concierge" aria-label="Message the concierge" required>
+    <input type="text" id="message" name="message" autocomplete="off" placeholder="Message Melody" aria-label="Message Melody" required>
     <button type="submit" class="primary" id="send">Send</button>
   </form>
 </footer>
@@ -139,7 +139,7 @@
       body.tool_calls.forEach(addToolCall);
       add("agent", body.reply);
     } catch (error) {
-      add("error", `Cannot reach the concierge: ${error.message}`);
+      add("error", `Cannot reach Melody: ${error.message}`);
     } finally {
       send.disabled = false;
       input.focus();
@@ -197,7 +197,7 @@
       who.append(`Signed in as ${guest.name} · `, id);
     })
     .catch((error) => {
-      document.getElementById("who").textContent = `Concierge unavailable: ${error.message}`;
+      document.getElementById("who").textContent = `Melody is unavailable: ${error.message}`;
     });
 </script>
 </body>
