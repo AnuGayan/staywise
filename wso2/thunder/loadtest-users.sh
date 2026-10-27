@@ -4,6 +4,7 @@
 # Usage:
 #   ./wso2/thunder/loadtest-users.sh --from-cluster              # create/update 50 users
 #   ./wso2/thunder/loadtest-users.sh --from-cluster --count 10   # fewer
+#   ./wso2/thunder/loadtest-users.sh --from-cluster --batch-size 2   # smaller imports if 5 still time out
 #   ./wso2/thunder/loadtest-users.sh --from-cluster --remove     # delete them and their role
 #
 # Each user gets the role hardrock-loadtest-guest (the same scopes as hardrock-guest) and maps to its own
@@ -21,6 +22,7 @@ RESOURCE_SERVER_ID="019a5cb2-0000-7000-8000-000000000010"
 ROLE_ID="019a5cb2-0000-7000-8000-000000000070"
 ROLE_NAME="hardrock-loadtest-guest"
 MAX_USERS=99
+BATCH_SIZE=5
 
 FROM_CLUSTER=0
 REMOVE=0
@@ -30,11 +32,13 @@ while [[ $# -gt 0 ]]; do
     --from-cluster) FROM_CLUSTER=1; shift ;;
     --remove) REMOVE=1; shift ;;
     --count) COUNT="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --batch-size) BATCH_SIZE="${2:-}"; shift 2 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
 [[ "$COUNT" =~ ^[0-9]+$ ]] && ((COUNT >= 1 && COUNT <= MAX_USERS)) || die "--count must be 1..$MAX_USERS"
+[[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] && ((BATCH_SIZE >= 1)) || die "--batch-size must be a positive number"
 
 require_tools curl jq
 log "THUNDER_BASE=$THUNDER_BASE"
@@ -62,11 +66,20 @@ prev_password=""
 password="${LOADTEST_PASSWORD:-${prev_password:-Lt-$(openssl rand -hex 8)-9a}}"
 [[ "$password" != *[\"\'\\]* ]] || die "LOADTEST_PASSWORD must not contain quotes or backslashes"
 
-content=""
-assignments=""
-for ((i = 1; i <= COUNT; i++)); do
+# Save the password before importing anything, so a failed or timed-out run never leaves users whose
+# password nobody knows. Kept next to the other demo secrets (mode 600), replacing an earlier value.
+touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
+grep -v -E "^LOADTEST_PASSWORD *=" "$ENV_FILE" >"$ENV_FILE.tmp" || true
+printf "LOADTEST_PASSWORD='%s'\n" "$password" >>"$ENV_FILE.tmp"
+mv "$ENV_FILE.tmp" "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+log "LOADTEST_PASSWORD saved in $ENV_FILE"
+
+user_yaml() {
+  local i="$1" name
   name=$(username "$i")
-  content+="resource_type: user
+  cat <<YAML
+resource_type: user
 id: $(user_id "$i")
 type: Person
 ouHandle: default
@@ -77,14 +90,48 @@ attributes:
   given_name: Load
   family_name: Test $(printf '%02d' "$i")
 credentials:
-  password: \"{{.LOADTEST_PASSWORD}}\"
+  password: "{{.LOADTEST_PASSWORD}}"
 ---
-"
+YAML
+}
+
+# import_batch <label> <yaml>: POST /import (upsert), retrying once: a gateway timeout (504) can hit while
+# ThunderID is still working, and re-importing the same ids is safe.
+import_batch() {
+  local label="$1" content="$2" body attempt failed
+  body=$(jq -n --arg content "$content" --arg LOADTEST_PASSWORD "$password" \
+    '{content: $content, variables: {LOADTEST_PASSWORD: $LOADTEST_PASSWORD}, options: {upsert: true, continueOnError: true}}')
+  for attempt in 1 2; do
+    api POST /import "$body"
+    [[ "$API_STATUS" == "200" ]] && break
+    log "$label: HTTP $API_STATUS (attempt $attempt)"
+  done
+  [[ "$API_STATUS" == "200" ]] ||
+    die "$label: import failed: HTTP $API_STATUS; re-run the script (it updates in place) or lower --batch-size"
+  failed=$(jq -r '.summary.failed' <<<"$API_BODY")
+  if [[ "$failed" != "0" ]]; then
+    jq -c '.results[] | select(.status != "success") | {resourceType, resourceName, error: (.error // .message // .errorDescription)}' <<<"$API_BODY" >&2
+    die "$label: $failed resource(s) failed to import"
+  fi
+  log "$label: $(jq -r '[.results[] | .operation // "-"] | group_by(.) | map("\(.[0])=\(length)") | join(", ")' <<<"$API_BODY")"
+}
+
+# Users first, a few per request: each user's password hash takes time, and the gateway in front of
+# ThunderID ends requests after ~30 s, so one 50-user import times out (HTTP 504).
+for ((first = 1; first <= COUNT; first += BATCH_SIZE)); do
+  last=$((first + BATCH_SIZE - 1 < COUNT ? first + BATCH_SIZE - 1 : COUNT))
+  content=""
+  for ((i = first; i <= last; i++)); do content+="$(user_yaml "$i")"$'\n'; done
+  import_batch "users $(username "$first")..$(username "$last")" "$content"
+done
+
+assignments=""
+for ((i = 1; i <= COUNT; i++)); do
   assignments+="  - id: $(user_id "$i")
     type: user
 "
 done
-content+="resource_type: role
+import_batch "role $ROLE_NAME" "resource_type: role
 id: $ROLE_ID
 name: $ROLE_NAME
 description: Hard Rock Miami concierge load-test guests (same scopes as hardrock-guest)
@@ -98,24 +145,4 @@ permissions:
       - unity:read
 assignments:
 $assignments"
-
-body=$(jq -n --arg content "$content" --arg LOADTEST_PASSWORD "$password" \
-  '{content: $content, variables: {LOADTEST_PASSWORD: $LOADTEST_PASSWORD}, options: {upsert: true, continueOnError: true}}')
-log "importing $COUNT users and role $ROLE_NAME ..."
-api POST /import "$body"
-[[ "$API_STATUS" == "200" ]] || die "import failed: HTTP $API_STATUS $(jq -c '{code,description}' <<<"$API_BODY" 2>/dev/null || true)"
-failed=$(jq -r '.summary.failed' <<<"$API_BODY")
-if [[ "$failed" != "0" ]]; then
-  jq -c '.results[] | select(.status != "success") | {resourceType, resourceName, error: (.error // .message // .errorDescription)}' <<<"$API_BODY" >&2
-  die "$failed resource(s) failed to import"
-fi
-log "imported: $(jq -r '[.results[] | .operation // "-"] | group_by(.) | map("\(.[0])=\(length)") | join(", ")' <<<"$API_BODY")"
-
-# Keep the password next to the other demo secrets (mode 600), replacing an earlier value.
-touch "$ENV_FILE" && chmod 600 "$ENV_FILE"
-grep -v -E "^LOADTEST_PASSWORD *=" "$ENV_FILE" >"$ENV_FILE.tmp" || true
-printf "LOADTEST_PASSWORD='%s'\n" "$password" >>"$ENV_FILE.tmp"
-mv "$ENV_FILE.tmp" "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-log "LOADTEST_PASSWORD saved in $ENV_FILE"
 log "done. Users $(username 1)..$(username "$COUNT") -> Unity members HR-300001..HR-$((300000 + COUNT))"
