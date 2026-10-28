@@ -34,6 +34,14 @@ def test_parse_args_reads_member_from_env(monkeypatch: pytest.MonkeyPatch) -> No
     assert parse_args(["--member-id", "HR-100377"]).member_id == "HR-100377"
 
 
+def test_parse_args_reads_reasoning_effort_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLM_REASONING_EFFORT", raising=False)
+    assert parse_args([]).reasoning_effort is None
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "none")
+    assert parse_args([]).reasoning_effort == "none"
+    assert parse_args(["--reasoning-effort", "low"]).reasoning_effort == "low"
+
+
 def test_parse_args_reads_model_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OLLAMA_MODEL", "llama3.1:8b")
     assert parse_args([]).model == "llama3.1:8b"

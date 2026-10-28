@@ -28,9 +28,13 @@ class OpenAIChatClient:
         *,
         api_key: str | None = None,
         api_key_header: str = DEFAULT_API_KEY_HEADER,
+        reasoning_effort: str | None = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
+        # Sent with every request when set. Reasoning models such as OpenAI's GPT-5 family refuse
+        # tools on /chat/completions unless it is "none".
+        self._reasoning_effort = reasoning_effort
         headers = {api_key_header: _auth_value(api_key_header, api_key)} if api_key else {}
         self._http = httpx.AsyncClient(
             base_url=base_url.rstrip("/"), headers=headers, timeout=timeout, transport=transport
@@ -56,6 +60,8 @@ class OpenAIChatClient:
         payload: dict[str, Any] = {"model": model, "messages": to_openai_messages(messages or [])}
         if tools:
             payload["tools"] = list(tools)
+        if self._reasoning_effort:
+            payload["reasoning_effort"] = self._reasoning_effort
         try:
             response = await self._http.post("/chat/completions", json=payload)
         except httpx.TransportError as exc:

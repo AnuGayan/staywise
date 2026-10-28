@@ -61,6 +61,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "header (e.g. API-Key for Agent Manager LLM proxies) sends the raw key",
     )
     parser.add_argument(
+        "--reasoning-effort",
+        default=os.environ.get("LLM_REASONING_EFFORT") or None,
+        help="reasoning_effort sent with --llm-base-url requests, e.g. 'none' for OpenAI reasoning models, "
+        "which refuse tools on /chat/completions otherwise (default: not sent)",
+    )
+    parser.add_argument(
         "--member-id",
         default=os.environ.get("CONCIERGE_MEMBER_ID", DEFAULT_MEMBER_ID),
         help="Unity member id for the terminal chat (the API takes it from the forwarded user token)",
@@ -155,7 +161,10 @@ async def open_llm(args: argparse.Namespace) -> AsyncIterator[ChatClient]:
         yield AsyncClient(host=args.ollama_host)
         return
     client = OpenAIChatClient(
-        args.llm_base_url, api_key=os.environ.get("LLM_API_KEY"), api_key_header=args.llm_api_key_header
+        args.llm_base_url,
+        api_key=os.environ.get("LLM_API_KEY"),
+        api_key_header=args.llm_api_key_header,
+        reasoning_effort=args.reasoning_effort,
     )
     try:
         yield client

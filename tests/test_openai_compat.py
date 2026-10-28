@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -92,6 +93,22 @@ async def test_chat_posts_openai_payload_and_returns_reply() -> None:
         "messages": [{"role": "user", "content": "hi"}],
         "tools": [{"type": "function"}],
     }
+
+
+async def test_chat_sends_reasoning_effort_when_configured() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"model": "m", "choices": [{"message": {"content": "ok"}}]})
+
+    client = OpenAIChatClient("http://gw", reasoning_effort="none", transport=httpx.MockTransport(handler))
+    try:
+        await client.chat("gpt", [{"role": "user", "content": "hi"}], tools=[{"type": "function"}])
+    finally:
+        await client.aclose()
+
+    assert bodies[0]["reasoning_effort"] == "none"
 
 
 @pytest.mark.parametrize(

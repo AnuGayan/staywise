@@ -149,7 +149,7 @@ docker build -t hardrock-concierge:dev .
 The image runs only the agent API, on port 8000 (`PORT`), the port Agent Manager gives the agent's service. It needs no sign-in settings, because the gateway validates user tokens. Agent Manager injects what the agent uses:
 
 - **MCP servers:** `<PREFIX>_URL`, plus `<PREFIX>_API_KEY` only for API-key proxies. The image sets `MCP_FROM_ENV=true`. With JWT-protected proxies, every MCP request carries a bearer token from the agent identity below.
-- **Model:** `LLM_BASE_URL`, `LLM_API_KEY`. The image sets `LLM_API_KEY_HEADER=API-Key`, the header Agent Manager's LLM proxies check. A provider you configure yourself may use another, e.g. `X-API-Key`.
+- **Model:** `LLM_BASE_URL`, `LLM_API_KEY`. The image sets `LLM_API_KEY_HEADER=API-Key`, the header Agent Manager's LLM proxies check. A provider you configure yourself may use another, e.g. `X-API-Key`. `OLLAMA_MODEL` names the model on any provider. For an OpenAI reasoning model (GPT-5 family) set `LLM_REASONING_EFFORT=none`: on `/chat/completions` those models refuse tools otherwise.
 - **Agent identity for token exchange:** `AMP_AGENTID_*`. `AMP_AGENTID_TOKEN_ENDPOINT` is Thunder's in-cluster service on port 8090, which the agent sandbox's network policy allows.
 - **Tracing:** `AMP_OTEL_ENDPOINT`, `AMP_AGENT_API_KEY`.
 
