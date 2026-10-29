@@ -14,8 +14,10 @@ import httpx
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
+from opentelemetry import trace
 
 from concierge.config import ServerConfig
+from concierge.telemetry import AGENT_NAME, mark_error, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class BearerAuth(httpx.Auth):
 class _Route:
     """How to reach the server that owns a tool."""
 
+    server: str
     session: ClientSession
     auth: BearerAuth | None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -64,7 +67,7 @@ class McpHub:
         for tool in tools:
             if tool.name in self._owners:
                 raise ValueError(f"tool {tool.name!r} from server {name!r} clashes with an already-registered tool")
-        route = _Route(session, auth)
+        route = _Route(name, session, auth)
         for tool in tools:
             self._owners[tool.name] = route
         self._tools.extend(tools)
@@ -101,6 +104,7 @@ class McpHub:
         route = self._owners.get(name)
         if route is None:
             return f"Error: unknown tool {name!r}. Available tools: {', '.join(self.tool_names)}"
+        trace.get_current_span().set_attribute("mcp.server.name", route.server)
         if route.auth is None:
             return format_tool_result(await route.session.call_tool(name, arguments))
         async with route.lock:
@@ -153,17 +157,11 @@ async def connect(configs: Sequence[ServerConfig], startup_token: str | None = N
     try:
         async with AsyncExitStack() as stack:
             hub = McpHub()
-            for config in configs:
-                connecting = config.name
-                session, auth = await _open_session(stack, config)
-                if auth is not None:
-                    auth.token = startup_token
-                init = await session.initialize()
-                hub.protocol_versions[config.name] = str(init.protocolVersion)
-                tool_names = await hub.add_server(config.name, session, auth)
-                if auth is not None:
-                    auth.token = None
-                logger.info("connected to %s (MCP %s): %s", config.name, init.protocolVersion, ", ".join(tool_names))
+            # One startup trace with a span per server, so a failed handshake shows which server and why.
+            with tracer.start_as_current_span(f"{AGENT_NAME}.startup", attributes={"mcp.servers": len(configs)}):
+                for config in configs:
+                    connecting = config.name
+                    await _connect_one(stack, hub, config, startup_token)
             connecting = None
             yield hub
     except (ExceptionGroup, httpx.HTTPError, OSError) as exc:
@@ -172,6 +170,30 @@ async def connect(configs: Sequence[ServerConfig], startup_token: str | None = N
             raise
         reason = str(cause).splitlines()[0] if str(cause) else type(cause).__name__
         raise McpConnectionError(f"cannot connect to MCP server {connecting!r}: {reason}. {_hint(cause)}") from exc
+
+
+async def _connect_one(stack: AsyncExitStack, hub: McpHub, config: ServerConfig, startup_token: str | None) -> None:
+    attributes = {"mcp.server.name": config.name, "mcp.transport": "streamable-http" if config.url else "stdio"}
+    if config.url:
+        attributes["url.full"] = config.url
+    with tracer.start_as_current_span(f"mcp.connect {config.name}", attributes=attributes) as span:
+        session, auth = await _open_session(stack, config)
+        if auth is not None:
+            auth.token = startup_token
+        try:
+            init = await session.initialize()
+        except BaseException:
+            # A refused or unreachable server cancels the handshake (CancelledError, which spans don't record);
+            # the cause surfaces later as McpConnectionError.
+            mark_error(span, f"MCP handshake with {config.name} did not complete", "mcp_connect_failed")
+            raise
+        hub.protocol_versions[config.name] = str(init.protocolVersion)
+        tool_names = await hub.add_server(config.name, session, auth)
+        if auth is not None:
+            auth.token = None
+        span.set_attribute("mcp.protocol.version", str(init.protocolVersion))
+        span.set_attribute("mcp.tools", tool_names)
+        logger.info("connected to %s (MCP %s): %s", config.name, init.protocolVersion, ", ".join(tool_names))
 
 
 def _hint(cause: BaseException) -> str:

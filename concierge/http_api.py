@@ -26,6 +26,7 @@ from starlette.routing import Route
 
 from concierge.agent import Agent, AgentStepLimitError, ToolCallObserver
 from concierge.identity import Guest, IdentityError, bearer_token, guest_from_token
+from concierge.telemetry import AGENT_NAME, mark_error, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -110,32 +111,34 @@ def create_app(
         if token is None:
             # Names only, never values: shows whether the gateway forwarded the token, and under what name.
             logger.warning("chat request without a user token; headers present: %s", ", ".join(sorted(request.headers)))
-            return _error(401, "no user token: send Authorization: Bearer <token>")
+            return _reject(401, "no user token: send Authorization: Bearer <token>", "no_user_token")
         try:
             guest = guest_from_token(token, members)
         except IdentityError as exc:
-            return _error(exc.status, str(exc))
+            return _reject(exc.status, str(exc), "unknown_guest")
         if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
-            return _error(415, "send the message as application/json")
+            return _reject(415, "send the message as application/json", "bad_request")
         try:
             body = await request.json()
         except JSONDecodeError:
-            return _error(400, "request body must be JSON")
+            return _reject(400, "request body must be JSON", "bad_request")
         if not isinstance(body, dict):
-            return _error(400, "request body must be a JSON object")
+            return _reject(400, "request body must be a JSON object", "bad_request")
         message = body.get("message")
         conversation_id = body.get("conversation_id") or DEFAULT_CONVERSATION_ID
         if not isinstance(message, str) or not message.strip():
-            return _error(400, "'message' must be a non-empty string")
+            return _reject(400, "'message' must be a non-empty string", "bad_request")
         if not isinstance(conversation_id, str):
-            return _error(400, "'conversation_id' must be a string")
+            return _reject(400, "'conversation_id' must be a string", "bad_request")
 
         conversation = conversations.get_or_create(guest, conversation_id)
         async with conversation.lock:
             conversation.tokens.user_token = token  # the latest token, so tool calls never use a stale one
             conversation.tool_calls.clear()
             try:
-                reply = await conversation.agent.ask(message)
+                reply = await conversation.agent.ask(
+                    message, trace_attributes={"gen_ai.conversation.id": conversation_id, "enduser.id": guest.member_id}
+                )
             except ResponseError as exc:
                 return _error(502, f"model endpoint rejected the request ({exc.status_code}): {exc.error}")
             except ConnectionError as exc:
@@ -152,6 +155,14 @@ def create_app(
             Route("/chat", chat, methods=["POST"]),
         ]
     )
+
+
+def _reject(status: int, message: str, reason: str) -> JSONResponse:
+    """Turn a request away before the agent runs, leaving a span that says why."""
+    attributes = {"http.request.method": "POST", "http.route": "/chat", "http.response.status_code": status}
+    with tracer.start_as_current_span(f"{AGENT_NAME}.request_rejected", attributes=attributes) as span:
+        mark_error(span, message, reason)
+    return _error(status, message)
 
 
 def _error(status: int, message: str) -> JSONResponse:

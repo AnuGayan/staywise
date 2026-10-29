@@ -5,8 +5,6 @@ from typing import Any, ClassVar
 import pytest
 from ollama import ChatResponse, Message
 from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from concierge.agent import DEFAULT_MEMBER_ID, Agent, AgentStepLimitError, build_system_prompt
@@ -108,15 +106,6 @@ async def test_default_prompt_is_for_the_demo_member() -> None:
     assert f'member_id="{DEFAULT_MEMBER_ID}"' in system["content"]
 
 
-@pytest.fixture(scope="module")
-def spans() -> InMemorySpanExporter:
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)  # the agent's module tracer is a proxy that resolves lazily
-    return exporter
-
-
 async def test_each_turn_is_one_agent_span_parenting_the_tool_work(spans: InMemorySpanExporter) -> None:
     spans.clear()
     child_parents: list[int | None] = []
@@ -134,8 +123,10 @@ async def test_each_turn_is_one_agent_span_parenting_the_tool_work(spans: InMemo
     )
     await Agent(llm, TracedTools(), "test-model").ask("go")
 
-    turn = next(span for span in spans.get_finished_spans() if span.name == "melody.agent")
+    finished = {span.name: span for span in spans.get_finished_spans()}
+    turn, tool = finished["melody.agent"], finished["execute_tool calculate"]
     assert turn.attributes is not None
     assert turn.attributes["traceloop.span.kind"] == "agent"
     assert turn.attributes["gen_ai.agent.name"] == "melody"
-    assert child_parents == [turn.context.span_id]
+    assert tool.parent is not None and tool.parent.span_id == turn.context.span_id
+    assert child_parents == [tool.context.span_id]

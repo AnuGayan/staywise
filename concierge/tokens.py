@@ -19,6 +19,7 @@ import httpx
 from opentelemetry import trace
 
 from concierge.identity import unverified_claims
+from concierge.telemetry import tracer
 
 DEFAULT_RESOURCE = "urn:hardrock:concierge-api"
 TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange"
@@ -38,8 +39,6 @@ TOOL_SCOPES: Mapping[str, str] = {
     "get_unity_balance": "unity:read",
     "get_points_activity": "unity:read",
 }
-
-_tracer = trace.get_tracer(__name__)
 
 
 class TokenConfigError(ValueError):
@@ -100,10 +99,12 @@ class TokenBroker:
             TokenError: if ThunderID refuses the exchange or doesn't grant `scope`.
         """
         key = (hashlib.sha256(user_token.encode()).hexdigest(), scope)
-        cached = self._exchanged.get(key)
-        if cached and self._fresh(cached):
-            return cached.token
-        with _tracer.start_as_current_span("token_exchange", attributes={"oauth.scope": scope}):
+        attributes = {"oauth.grant_type": TOKEN_EXCHANGE, "oauth.scope": scope}
+        with tracer.start_as_current_span("token_exchange", attributes=attributes) as span:
+            cached = self._exchanged.get(key)
+            span.set_attribute("oauth.token.cached", bool(cached and self._fresh(cached)))
+            if cached and self._fresh(cached):
+                return cached.token
             body = await self._token_request(
                 {
                     "grant_type": TOKEN_EXCHANGE,
@@ -117,9 +118,9 @@ class TokenBroker:
                 },
                 "token exchange",
             )
-        token = body["access_token"]
-        if scope not in _granted_scopes(body, token):
-            raise TokenError(f"the guest's sign-in does not allow {scope}")
+            token = body["access_token"]
+            if scope not in _granted_scopes(body, token):
+                raise TokenError(f"the guest's sign-in does not allow {scope}")
         self._exchanged[key] = self._cache(token, body)
         while len(self._exchanged) > MAX_CACHED_TOKENS:
             self._exchanged.popitem(last=False)
@@ -131,13 +132,16 @@ class TokenBroker:
         Raises:
             TokenError: if ThunderID refuses or can't be reached.
         """
-        if self._agent and self._fresh(self._agent):
+        with tracer.start_as_current_span("agent_token", attributes={"oauth.grant_type": "client_credentials"}) as span:
+            fresh = self._agent is not None and self._fresh(self._agent)
+            span.set_attribute("oauth.token.cached", fresh)
+            if self._agent is not None and fresh:
+                return self._agent.token
+            body = await self._token_request(
+                {"grant_type": "client_credentials", "resource": self._identity.resource}, "agent token"
+            )
+            self._agent = self._cache(body["access_token"], body)
             return self._agent.token
-        body = await self._token_request(
-            {"grant_type": "client_credentials", "resource": self._identity.resource}, "agent token"
-        )
-        self._agent = self._cache(body["access_token"], body)
-        return self._agent.token
 
     async def _token_request(self, form: dict[str, str], purpose: str) -> dict[str, Any]:
         try:
@@ -148,6 +152,7 @@ class TokenBroker:
             )
         except httpx.HTTPError as exc:
             raise TokenError(f"cannot reach ThunderID for the {purpose}: {exc}") from exc
+        trace.get_current_span().set_attribute("http.response.status_code", response.status_code)
         try:
             body = response.json()
         except ValueError:
@@ -204,13 +209,20 @@ class GuestTools:
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Run a tool for the guest. A refused token comes back as an "Error: ..." the model can explain."""
+        # Recorded on the caller's span (the agent's `execute_tool` span): which credential this call used.
+        span = trace.get_current_span()
         if self._broker is None:
+            span.set_attribute("melody.tool.credential", "none")
             return await self._hub.call_tool(name, arguments)
         scope = self._scopes.get(name)
+        if scope is not None:
+            span.set_attribute("melody.tool.scope", scope)
         try:
             if scope is not None and self.user_token:
+                span.set_attribute("melody.tool.credential", "guest_exchanged")
                 token = await self._broker.for_guest(self.user_token, scope)
             else:
+                span.set_attribute("melody.tool.credential", "agent")
                 token = await self._broker.agent_token()
         except TokenError as exc:
             return f"Error: not authorized to use {name}: {exc}"

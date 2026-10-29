@@ -291,16 +291,23 @@ kubectl --kubeconfig <(k3d kubeconfig get amp-local) -n default-default logs dep
 
 Docker-built agents bring their own instrumentation. The image installs the `amp` extra (`amp-instrumentation==0.4.1`) and starts with `amp-instrument hardrock-concierge ...`. A startup hook initialises Traceloop, which exports OTLP/HTTP spans to `AMP_OTEL_ENDPOINT` with the `x-amp-api-key: $AMP_AGENT_API_KEY` header. Agent Manager injects both variables into the pod. Without them the hook prints an error and the agent runs untraced.
 
-Each guest turn is one trace:
+Traceloop records native Ollama calls and each MCP `tools/call`. The agent adds spans for everything else it does (`concierge/telemetry.py`), so each guest turn is one trace:
 
 ```
-melody.agent                        one per question (concierge/agent.py)
-├── ollama.chat                     each model call
-├── get_unity_balance.tool          each MCP tool call
-└── ollama.chat
+melody.agent                          one per question: model, conversation id, member id (enduser.id),
+│                                     model/tool call counts, the question and the reply
+├── chat <model>                      each model call through LLM_BASE_URL: token usage, finish reason,
+│                                     prompt, reply and requested tool calls (ollama.chat when native)
+├── execute_tool get_unity_balance    each tool call: arguments, result, MCP server, scope and credential
+│   ├── token_exchange                the guest's token swapped for one scope (oauth.token.cached on reuse)
+│   │   └── agent_token               the agent's own token, the exchange's actor
+│   └── get_unity_balance.tool        the MCP call (Traceloop)
+└── chat <model>
 ```
 
-The MCP `initialize` / `tools/list` calls at start-up appear as their own short traces. Prompts and tool results are recorded in the spans. Set `AMP_TRACE_CONTENT=false` in the deployment to leave them out.
+A refused token or a tool error marks its `execute_tool` span as failed, and a failed model call marks its `chat` span (with the HTTP status). At start-up, `melody.startup` has one `mcp.connect <server>` span per MCP server, with its tools, so a server that can't be reached is named in the trace. A request the agent turns away before running (no token, no Unity membership, a malformed body) leaves a `melody.request_rejected` span with the status and reason.
+
+Prompts, replies, tool arguments and results are recorded in the spans. Set `AMP_TRACE_CONTENT=false` in the deployment to leave them out. Tokens are never recorded.
 
 To try it locally against any OTLP/HTTP collector:
 
